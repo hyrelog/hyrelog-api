@@ -86,6 +86,7 @@ async function seed() {
     await prisma.gdprApproval.deleteMany({});
     await prisma.gdprRequest.deleteMany({});
     await prisma.archiveObject.deleteMany({});
+    await prisma.exportJob.deleteMany({}); // Delete export jobs before companies
     await prisma.apiKey.deleteMany({});
     await prisma.project.deleteMany({});
     await prisma.workspace.deleteMany({});
