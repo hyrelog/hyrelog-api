@@ -80,10 +80,26 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - '9000:9000' # S3 API
+      - '9000:9000' # S3 API (dashboard avatar uploads, API assets, etc.)
       - '9001:9001' # MinIO Console UI
     volumes:
       - minio_data:/data
+
+  # Create bucket for dashboard profile avatars (public read so image URLs work)
+  minio-init:
+    image: minio/mc:latest
+    container_name: hyrelog-minio-init
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc mb myminio/hyrelog-avatars --ignore-existing;
+      mc anonymous set download myminio/hyrelog-avatars;
+      exit 0;
+      "
+    restart: "no"
 
   postgres_dashboard:
     image: postgres:16
