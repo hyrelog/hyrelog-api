@@ -32,10 +32,10 @@
     "unmark-cold-archived": "tsx scripts/unmark-cold-archived.js"
   },
   "devDependencies": {
-    "@prisma/client": "^7.2.0",
-    "prettier": "^3.2.5",
-    "prisma": "^7.2.0",
-    "typescript": "^5.3.3"
+    "@prisma/client": "^7.4.0",
+    "prettier": "^3.8.1",
+    "prisma": "^7.4.0",
+    "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=20.0.0"
