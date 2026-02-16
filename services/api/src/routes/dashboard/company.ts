@@ -1,7 +1,8 @@
 /**
  * Dashboard Company Routes
- * 
- * Wraps existing API functionality with dashboard authentication
+ *
+ * Contract: docs/DASHBOARD_API_CONTRACT.md
+ * Idempotent upserts by dashboardCompanyId; region from body or lookup.
  */
 
 import { FastifyPluginAsync } from 'fastify';
@@ -9,11 +10,13 @@ import { z } from 'zod';
 import { getLogger } from '../../lib/logger.js';
 import { logDashboardAction } from '../../lib/auditLog.js';
 import { getCompanyPlanConfig } from '../../lib/plans.js';
+import { getRegionRouter } from '../../lib/regionRouter.js';
 import { exportsRoutes } from '../v1/exports.js';
 import { webhooksRoutes } from '../v1/webhooks.js';
 import { eventsRoutes } from '../v1/events.js';
 
 const logger = getLogger();
+const regionRouter = getRegionRouter();
 
 const QueryEventsSchema = z.object({
   limit: z.coerce.number().min(1).max(200).default(50),
@@ -24,6 +27,15 @@ const QueryEventsSchema = z.object({
   action: z.string().optional(),
   projectId: z.string().uuid().optional(),
   workspaceId: z.string().uuid().optional(),
+});
+
+const ProvisionCompanySchema = z.object({
+  dashboardCompanyId: z.string().uuid(),
+  slug: z.string().min(1).max(100),
+  name: z.string().min(1).max(100),
+  dataRegion: z.enum(['US', 'EU', 'UK', 'AU']),
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+  createdAt: z.string().datetime().optional(),
 });
 
 const CreateCompanySchema = z.object({
@@ -37,17 +49,14 @@ const CreateCompanySchema = z.object({
 export const companyRoutes: FastifyPluginAsync = async (fastify) => {
   /**
    * POST /dashboard/companies
-   * Create a new company
+   * Idempotent company provisioning (contract). Body: dashboardCompanyId, slug, name, dataRegion.
    */
   fastify.post('/companies', async (request, reply) => {
-    if (!request.dashboardAuth || !request.prisma) {
+    if (!request.dashboardAuth) {
       return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
     }
 
-    const { userId, userEmail, userRole } = request.dashboardAuth;
-
-    // Validate request body
-    const bodyResult = CreateCompanySchema.safeParse(request.body);
+    const bodyResult = ProvisionCompanySchema.safeParse(request.body);
     if (!bodyResult.success) {
       return reply.code(400).send({
         error: 'Validation error',
@@ -56,47 +65,110 @@ export const companyRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    const { name, dataRegion, companySize, industry, useCase } = bodyResult.data;
-    const prisma = request.prisma;
+    const { dashboardCompanyId, slug, name, dataRegion } = bodyResult.data;
+    const prisma = regionRouter.getPrisma(dataRegion);
+    const { userId, userEmail, userRole } = request.dashboardAuth;
 
     try {
-      // Create company with FREE plan by default
+      const existing = await prisma.company.findUnique({
+        where: { dashboardCompanyId },
+        select: { id: true, name: true, dataRegion: true, createdAt: true },
+      });
+
+      if (existing) {
+        await logDashboardAction(prisma, request, {
+          action: 'COMPANY_PROVISION_IDEMPOTENT',
+          actorUserId: userId,
+          actorEmail: userEmail,
+          actorRole: userRole,
+          targetCompanyId: existing.id,
+          metadata: { dashboardCompanyId },
+        });
+        return reply.code(200).send({
+          apiCompanyId: existing.id,
+          dashboardCompanyId,
+          dataRegion: existing.dataRegion,
+          status: 'PROVISIONED',
+          created: false,
+          updatedAt: existing.createdAt.toISOString(),
+        });
+      }
+
+      const freePlan = await prisma.plan.findFirst({
+        where: { planTier: 'FREE', planType: 'STANDARD', isActive: true },
+      });
+      if (!freePlan) {
+        logger.error({ dataRegion }, 'Dashboard: No FREE plan found in region');
+        return reply.code(500).send({ error: 'Plan configuration missing', code: 'INTERNAL_ERROR' });
+      }
+
       const company = await prisma.company.create({
         data: {
+          dashboardCompanyId,
+          slug,
           name,
           dataRegion,
+          planId: freePlan.id,
           planTier: 'FREE',
           billingStatus: 'ACTIVE',
-          companySize,
-          industry,
-          useCase,
-        },
-        include: {
-          plan: true,
         },
       });
 
-      // Log audit action
       await logDashboardAction(prisma, request, {
         action: 'COMPANY_CREATED',
         actorUserId: userId,
         actorEmail: userEmail,
         actorRole: userRole,
         targetCompanyId: company.id,
-        metadata: { name, dataRegion },
+        metadata: { name, dataRegion, dashboardCompanyId },
       });
 
       return reply.code(201).send({
-        id: company.id,
-        name: company.name,
+        apiCompanyId: company.id,
+        dashboardCompanyId,
         dataRegion: company.dataRegion,
-        planTier: company.planTier,
+        status: 'PROVISIONED',
+        created: true,
         createdAt: company.createdAt.toISOString(),
       });
     } catch (error: any) {
-      logger.error({ err: error, userId }, 'Dashboard: Failed to create company');
+      logger.error({ err: error, dashboardCompanyId, dataRegion }, 'Dashboard: Failed to provision company');
       return reply.code(500).send({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
     }
+  });
+
+  /**
+   * GET /dashboard/companies/:dashboardCompanyId
+   * Reconciliation: exists, apiCompanyId, dataRegion, updatedAt
+   */
+  fastify.get<{ Params: { dashboardCompanyId: string } }>('/companies/:dashboardCompanyId', async (request, reply) => {
+    if (!request.dashboardAuth) {
+      return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+    }
+
+    const { dashboardCompanyId } = request.params;
+    if (!dashboardCompanyId) {
+      return reply.code(400).send({ error: 'Missing dashboardCompanyId', code: 'VALIDATION_ERROR' });
+    }
+
+    const regions = regionRouter.getAllRegions();
+    for (const region of regions) {
+      const prisma = regionRouter.getPrisma(region);
+      const company = await prisma.company.findUnique({
+        where: { dashboardCompanyId },
+        select: { id: true, dataRegion: true, createdAt: true },
+      });
+      if (company) {
+        return reply.send({
+          exists: true,
+          apiCompanyId: company.id,
+          dataRegion: company.dataRegion,
+          updatedAt: company.createdAt.toISOString(),
+        });
+      }
+    }
+
+    return reply.send({ exists: false });
   });
 
   /**
@@ -285,7 +357,7 @@ export const companyRoutes: FastifyPluginAsync = async (fastify) => {
       actorEmail: userEmail,
       actorRole: userRole,
       targetCompanyId: companyId,
-      metadata: request.body,
+      metadata: (request.body as Record<string, unknown>) ?? {},
     });
 
     // Note: Full implementation would call the export creation logic from exportsRoutes

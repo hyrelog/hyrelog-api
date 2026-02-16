@@ -24,21 +24,12 @@ Key management operations are sensitive and require additional security measures
   - Prevention of accidental or malicious revocation
 
 ### Workspace Key Creation
-- **Status**: API-accessible with restrictions
-- **Requirements**:
-  1. **Company key authentication** (workspace keys cannot create other keys)
-  2. **IP allowlist required**: Company key must have IP allowlist configured
-  3. **Stricter rate limiting**: 10 operations per minute (separate from general API rate limit)
-  4. **Comprehensive audit logging**: All operations logged with trace ID, IP, user agent, etc.
+- **Status**: Dashboard-only (not available via public API)
+- **Reason**: Key management is done in the dashboard; the dashboard is the source of truth and syncs key data to the API backend. This ensures dashboard auth, audit trail, and confirmation flows for all key creation.
 
 ### Key Rotation
-- **Status**: API-accessible with restrictions
-- **Requirements**:
-  1. **Company key authentication** (workspace keys cannot rotate keys)
-  2. **IP allowlist required**: Company key must have IP allowlist configured
-  3. **Stricter rate limiting**: 10 operations per minute
-  4. **Comprehensive audit logging**: All operations logged
-  5. **Validation**: Cannot rotate already-revoked keys
+- **Status**: Dashboard-only (not available via public API)
+- **Reason**: Same as workspace key creation—rotation is a sensitive operation and is performed in the dashboard, which then updates the API backend.
 
 ### Key Status Check
 - **Status**: API-accessible (read-only, less restrictive)

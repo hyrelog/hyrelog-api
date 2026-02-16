@@ -31,6 +31,11 @@ enum ApiKeyStatus {
   REVOKED
 }
 
+enum WorkspaceStatus {
+  ACTIVE
+  ARCHIVED
+}
+
 enum CompanyMemberRole {
   ADMIN
   MEMBER
@@ -172,7 +177,11 @@ model Plan {
 model Company {
   id         String   @id @default(uuid())
   name       String
+  slug       String?
   dataRegion Region   @default(US)
+
+  /// Dashboard's company ID; used for idempotency and sync (dashboard is source of truth).
+  dashboardCompanyId String?  @unique
   
   // Plan assignment (database-driven)
   planId     String   // References Plan (standard or custom) - required after migration
@@ -230,7 +239,12 @@ model Workspace {
   id        String   @id @default(uuid())
   companyId String
   name      String
+  slug      String?
+  status    WorkspaceStatus @default(ACTIVE)
   createdAt DateTime @default(now())
+
+  /// Dashboard's workspace ID; used for idempotency and sync (dashboard is source of truth).
+  dashboardWorkspaceId String? @unique
 
   // Relations
   company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -249,7 +263,11 @@ model Project {
   id          String   @id @default(uuid())
   workspaceId String
   name        String
+  slug        String?
   createdAt   DateTime @default(now())
+
+  /// Dashboard's project ID; used for idempotency and sync.
+  dashboardProjectId String? @unique
 
   // Relations
   workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -267,14 +285,20 @@ model Project {
 
 model ApiKey {
   id        String       @id @default(uuid())
-  prefix    String // e.g., "hyk_live_abc123"
-  hashedKey String // bcrypt hash of full key
+  prefix    String // e.g. hlk_us_co_...
+  hashedKey String
   scope     ApiKeyScope
   status    ApiKeyStatus @default(ACTIVE)
+
+  /// Dashboard's key ID; used for idempotency and sync.
+  dashboardKeyId String? @unique
 
   // Scope references (mutually exclusive)
   companyId   String?
   workspaceId String?
+
+  /// When set, key is revoked (enforced at runtime). Prefer this for revocation latency.
+  revokedAt DateTime?
 
   // Expiration
   expiresAt DateTime?

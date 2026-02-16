@@ -1,3 +1,4 @@
+import fp from 'fastify-plugin';
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { createHash } from 'crypto';
@@ -34,9 +35,59 @@ const QueryEventsSchema = z.object({
   workspaceId: z.string().uuid().optional(),
 });
 
-export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
+/** OpenAPI body schema for POST /v1/events (matches IngestEventSchema) */
+const ingestEventBodySchema = {
+  type: 'object' as const,
+  required: ['category', 'action'],
+  properties: {
+    timestamp: { type: 'string', format: 'date-time', description: 'Event time (ISO 8601). Defaults to server time.' },
+    projectId: { type: 'string', format: 'uuid', description: 'Project ID if scoped to a project' },
+    category: { type: 'string', minLength: 1, description: 'Event category' },
+    action: { type: 'string', minLength: 1, description: 'Event action' },
+    actor: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        email: { type: 'string', format: 'email' },
+        role: { type: 'string' },
+      },
+    },
+    resource: {
+      type: 'object',
+      properties: {
+        type: { type: 'string' },
+        id: { type: 'string' },
+      },
+    },
+    metadata: { type: 'object', additionalProperties: true, description: 'Arbitrary key-value data' },
+    idempotencyKey: { type: 'string', description: 'Key for idempotent ingestion; duplicate requests return 200 with existing event' },
+  },
+};
+
+const eventsRoutesImpl: FastifyPluginAsync = async (fastify) => {
   // POST /v1/events - Ingest event
-  fastify.post('/events', async (request, reply) => {
+  fastify.post('/v1/events', {
+    schema: {
+      tags: ['Events'],
+      summary: 'Ingest event',
+      description: 'Ingest an audit event. Requires Bearer API key (workspace scope). Idempotent when idempotencyKey is provided.',
+      body: ingestEventBodySchema,
+      response: {
+        201: {
+          type: 'object',
+          description: 'Created event',
+          properties: { id: { type: 'string', description: 'Event ID' } },
+          required: ['id'],
+        },
+        200: {
+          type: 'object',
+          description: 'Idempotent replay – existing event returned',
+          properties: { id: { type: 'string' } },
+          required: ['id'],
+        },
+      },
+    },
+    handler: async (request, reply) => {
     if (!request.apiKey || !request.prisma) {
       return reply.code(401).send({
         error: 'Authentication required',
@@ -49,6 +100,14 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(403).send({
         error: 'Only workspace keys can ingest events',
         code: 'FORBIDDEN',
+      });
+    }
+
+    // Contract: reject writes for archived workspaces
+    if (request.apiKey.workspaceId && request.apiKey.workspaceStatus === 'ARCHIVED') {
+      return reply.code(403).send({
+        error: 'Workspace is archived; ingestion is disabled',
+        code: 'WORKSPACE_ARCHIVED',
       });
     }
 
@@ -211,10 +270,40 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     return reply.code(201).send(event);
+  },
   });
 
   // GET /v1/events - Query events
-  fastify.get('/events', async (request, reply) => {
+  fastify.get('/v1/events', {
+    schema: {
+      tags: ['Events'],
+      summary: 'Query events',
+      description: 'List audit events with optional filters and cursor pagination. Requires Bearer API key (workspace or company scope).',
+      querystring: {
+        type: 'object',
+        properties: {
+          limit: { type: 'integer', minimum: 1, maximum: 200, default: 50, description: 'Max events per page' },
+          cursor: { type: 'string', description: 'Opaque cursor for next page' },
+          from: { type: 'string', format: 'date-time', description: 'Filter events from this time (ISO 8601)' },
+          to: { type: 'string', format: 'date-time', description: 'Filter events until this time (ISO 8601)' },
+          category: { type: 'string', description: 'Filter by category' },
+          action: { type: 'string', description: 'Filter by action' },
+          projectId: { type: 'string', format: 'uuid', description: 'Filter by project' },
+          workspaceId: { type: 'string', format: 'uuid', description: 'Filter by workspace (company keys only)' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            data: { type: 'array', items: { type: 'object' }, description: 'List of audit events' },
+            nextCursor: { type: ['string', 'null'], description: 'Cursor for next page, or null' },
+          },
+          required: ['data', 'nextCursor'],
+        },
+      },
+    },
+    handler: async (request, reply) => {
     // Auth plugin should have set request.apiKey and request.prisma
     // If not set, it means auth failed (but auth plugin should have returned 401)
     if (!request.apiKey || !request.prisma) {
@@ -334,6 +423,9 @@ export const eventsRoutes: FastifyPluginAsync = async (fastify) => {
       data,
       nextCursor,
     });
+  },
   });
 };
+
+export const eventsRoutes = fp(eventsRoutesImpl, { name: 'v1-events-routes' });
 

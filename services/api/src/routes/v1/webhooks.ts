@@ -1,3 +1,4 @@
+import fp from 'fastify-plugin';
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { getLogger } from '../../lib/logger.js';
@@ -72,9 +73,43 @@ function validateWebhookUrl(url: string): { valid: boolean; error?: string } {
   return { valid: true };
 }
 
-export const webhooksRoutes: FastifyPluginAsync = async (fastify) => {
+const createWebhookBodySchema = {
+  type: 'object' as const,
+  required: ['url'],
+  properties: {
+    url: { type: 'string', format: 'uri', description: 'Webhook endpoint URL (HTTPS in production)' },
+    events: { type: 'array', items: { type: 'string', enum: ['AUDIT_EVENT_CREATED'] }, description: 'Events to subscribe to; default: AUDIT_EVENT_CREATED' },
+    projectId: { type: ['string', 'null'], format: 'uuid', description: 'Scope to project; null for workspace-wide' },
+    secretLabel: { type: 'string', description: 'Optional label for the secret' },
+  },
+};
+
+const webhooksRoutesImpl: FastifyPluginAsync = async (fastify) => {
   // POST /v1/workspaces/:workspaceId/webhooks - Create webhook endpoint
-  fastify.post('/workspaces/:workspaceId/webhooks', async (request, reply) => {
+  fastify.post('/v1/workspaces/:workspaceId/webhooks', {
+    schema: {
+      tags: ['Webhooks'],
+      summary: 'Create webhook',
+      description: 'Create a webhook endpoint for a workspace. Requires company-scoped API key and IP allowlist. Webhooks require Growth plan or higher.',
+      params: { type: 'object', properties: { workspaceId: { type: 'string', format: 'uuid' } }, required: ['workspaceId'] },
+      body: createWebhookBodySchema,
+      response: {
+        201: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            url: { type: 'string' },
+            status: { type: 'string' },
+            events: { type: 'array', items: { type: 'string' } },
+            projectId: { type: ['string', 'null'] },
+            secret: { type: 'string', description: 'Shown only once; store securely' },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+          required: ['id', 'url', 'status', 'secret', 'createdAt'],
+        },
+      },
+    },
+    handler: async (request, reply) => {
     if (!request.apiKey || !request.prisma) {
       return reply.code(401).send({
         error: 'Authentication required',
@@ -262,10 +297,44 @@ export const webhooksRoutes: FastifyPluginAsync = async (fastify) => {
       secret: plaintextSecret, // Shown only once
       createdAt: webhook.createdAt,
     });
+  },
   });
 
   // GET /v1/workspaces/:workspaceId/webhooks - List webhooks
-  fastify.get('/workspaces/:workspaceId/webhooks', async (request, reply) => {
+  fastify.get('/v1/workspaces/:workspaceId/webhooks', {
+    schema: {
+      tags: ['Webhooks'],
+      summary: 'List webhooks',
+      description: 'List webhook endpoints for a workspace. Requires company-scoped API key.',
+      params: { type: 'object', properties: { workspaceId: { type: 'string', format: 'uuid' } }, required: ['workspaceId'] },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            webhooks: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  url: { type: 'string' },
+                  status: { type: 'string' },
+                  events: { type: 'array', items: { type: 'string' } },
+                  projectId: { type: ['string', 'null'] },
+                  lastSuccessAt: { type: ['string', 'null'], format: 'date-time' },
+                  lastFailureAt: { type: ['string', 'null'], format: 'date-time' },
+                  failureCount: { type: 'integer' },
+                  createdAt: { type: 'string', format: 'date-time' },
+                  updatedAt: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+          },
+          required: ['webhooks'],
+        },
+      },
+    },
+    handler: async (request, reply) => {
     if (!request.apiKey || !request.prisma) {
       return reply.code(401).send({
         error: 'Authentication required',
@@ -322,10 +391,21 @@ export const webhooksRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     return reply.send({ webhooks });
+  },
   });
 
   // POST /v1/webhooks/:webhookId/disable - Disable webhook
-  fastify.post('/webhooks/:webhookId/disable', async (request, reply) => {
+  fastify.post('/v1/webhooks/:webhookId/disable', {
+    schema: {
+      tags: ['Webhooks'],
+      summary: 'Disable webhook',
+      description: 'Disable a webhook endpoint. Requires company-scoped API key and IP allowlist.',
+      params: { type: 'object', properties: { webhookId: { type: 'string' } }, required: ['webhookId'] },
+      response: {
+        200: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' } }, required: ['id', 'status'] },
+      },
+    },
+    handler: async (request, reply) => {
     if (!request.apiKey || !request.prisma) {
       return reply.code(401).send({
         error: 'Authentication required',
@@ -398,10 +478,21 @@ export const webhooksRoutes: FastifyPluginAsync = async (fastify) => {
       id: updated.id,
       status: updated.status,
     });
+  },
   });
 
   // POST /v1/webhooks/:webhookId/enable - Enable webhook
-  fastify.post('/webhooks/:webhookId/enable', async (request, reply) => {
+  fastify.post('/v1/webhooks/:webhookId/enable', {
+    schema: {
+      tags: ['Webhooks'],
+      summary: 'Enable webhook',
+      description: 'Re-enable a disabled webhook. Requires company-scoped API key and IP allowlist.',
+      params: { type: 'object', properties: { webhookId: { type: 'string' } }, required: ['webhookId'] },
+      response: {
+        200: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' } }, required: ['id', 'status'] },
+      },
+    },
+    handler: async (request, reply) => {
     if (!request.apiKey || !request.prisma) {
       return reply.code(401).send({
         error: 'Authentication required',
@@ -474,10 +565,36 @@ export const webhooksRoutes: FastifyPluginAsync = async (fastify) => {
       id: updated.id,
       status: updated.status,
     });
+  },
   });
 
   // GET /v1/webhooks/:webhookId/deliveries - Get delivery attempts
-  fastify.get('/webhooks/:webhookId/deliveries', async (request, reply) => {
+  fastify.get('/v1/webhooks/:webhookId/deliveries', {
+    schema: {
+      tags: ['Webhooks'],
+      summary: 'List webhook deliveries',
+      description: 'List delivery attempts for a webhook with optional filters. Requires company-scoped API key.',
+      params: { type: 'object', properties: { webhookId: { type: 'string' } }, required: ['webhookId'] },
+      querystring: {
+        type: 'object',
+        properties: {
+          limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+          cursor: { type: 'string' },
+          status: { type: 'string', enum: ['PENDING', 'SENDING', 'SUCCEEDED', 'FAILED', 'RETRY_SCHEDULED'] },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            data: { type: 'array', items: { type: 'object' } },
+            nextCursor: { type: ['string', 'null'] },
+          },
+          required: ['data', 'nextCursor'],
+        },
+      },
+    },
+    handler: async (request, reply) => {
     if (!request.apiKey || !request.prisma) {
       return reply.code(401).send({
         error: 'Authentication required',
@@ -559,6 +676,8 @@ export const webhooksRoutes: FastifyPluginAsync = async (fastify) => {
       data,
       nextCursor,
     });
+  },
   });
 };
 
+export const webhooksRoutes = fp(webhooksRoutesImpl, { name: 'v1-webhooks-routes' });

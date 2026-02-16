@@ -177,19 +177,42 @@ if (providedSig === computedSig) {
 }
 ```
 
-## Quick Reference Table
+## Dashboard API Variables
 
-| Variable         | Where to Get                             | When to Set                        | Required?   |
-| ---------------- | ---------------------------------------- | ---------------------------------- | ----------- |
-| `company_key`    | Seed output                              | Immediately after seeding          | ✅ Yes      |
-| `workspace_key`  | Seed output                              | Immediately after seeding          | ✅ Yes      |
-| `company_id`     | Seed output                              | Immediately after seeding          | ✅ Yes      |
-| `workspace_id`   | Seed output                              | Immediately after seeding          | ✅ Yes      |
-| `project_id`     | Seed output                              | Immediately after seeding          | ✅ Yes      |
-| `plan_tier`      | Seed output                              | Immediately after seeding          | ✅ Yes      |
-| `key_id`         | Get Key Status or Create Key response    | When you need to rotate a key      | ❌ Optional |
-| `webhook_id`     | Create Webhook or List Webhooks response | When you create a webhook          | ❌ Optional |
-| `webhook_secret` | Create Webhook response (only once!)     | Immediately after creating webhook | ❌ Optional |
+Required for **Dashboard** folder (all `/dashboard/*` requests):
+
+| Variable                 | Where to Get                                      | When to Set                    | Required?   |
+| ------------------------ | ------------------------------------------------- | ------------------------------ | ----------- |
+| `dashboard_token`        | API `.env`: `DASHBOARD_SERVICE_TOKEN`              | Before any Dashboard request   | ✅ Yes      |
+| `dashboard_company_id`   | Your dashboard app company UUID (or generate new) | Provision Company / reconcile  | For Dashboard companies/workspaces |
+| `dashboard_workspace_id` | Your dashboard app workspace UUID                 | Provision Workspace, archive   | For workspaces |
+| `api_company_id`         | **Provision Company** response: `apiCompanyId`     | After first Provision Company  | For x-company-id routes |
+| `api_workspace_id`       | **Provision Workspace** response: `apiWorkspaceId` | Optional                       | ❌ Optional |
+| `dashboard_key_id`       | Your dashboard app API key record UUID            | Sync Key, Revoke Key           | For key sync/revoke |
+| `archive_id`             | Archive object UUID (from export/archive context) | Create Restore Request         | ❌ Optional |
+| `restore_request_id`     | Create Restore Request or List response: `id`     | Get/Cancel/Approve/Reject       | ❌ Optional |
+| `plan_id`                | **Admin > List Plans** response: plan `id`        | Assign Plan to Company         | ❌ Optional |
+
+**Note:** For company-scoped Dashboard routes (GET Company, GET Events, Export, Webhooks, Restore), set `x-company-id` to `api_company_id` (or dashboard company id). The collection uses `{{api_company_id}}` in those request headers.
+
+## Quick Reference Table (V1 + Dashboard)
+
+| Variable                 | Where to Get                             | When to Set                        | Required?   |
+| ------------------------ | ---------------------------------------- | ---------------------------------- | ----------- |
+| `company_key`            | Seed output                              | Immediately after seeding          | ✅ V1       |
+| `workspace_key`          | Seed output                              | Immediately after seeding          | ✅ V1       |
+| `company_id`             | Seed output                              | Immediately after seeding          | ✅ V1       |
+| `workspace_id`           | Seed output                              | Immediately after seeding          | ✅ V1       |
+| `project_id`             | Seed output                              | Immediately after seeding          | ✅ V1       |
+| `plan_tier`              | Seed output                              | Immediately after seeding          | ✅ V1       |
+| `dashboard_token`        | API .env DASHBOARD_SERVICE_TOKEN         | Before Dashboard requests          | ✅ Dashboard |
+| `api_company_id`         | Provision Company response               | After Provision Company             | For company-scoped Dashboard |
+| `key_id`                 | Get Key Status or Create Key response    | When you need to rotate a key      | ❌ Optional |
+| `webhook_id`             | Create Webhook or List Webhooks response | When you create a webhook          | ❌ Optional |
+| `webhook_secret`         | Create Webhook response (only once!)     | Immediately after creating webhook | ❌ Optional |
+| `dashboard_company_id`   | Dashboard app / new UUID                 | Provision Company, GET company     | For Dashboard |
+| `dashboard_workspace_id` | Dashboard app / new UUID                 | Provision Workspace, archive       | For Dashboard |
+| `dashboard_key_id`       | Dashboard app key record id              | Sync/Revoke key                    | ❌ Optional |
 
 ## Pro Tip: Auto-extract with Postman Tests
 

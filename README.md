@@ -4,6 +4,8 @@ HyreLog is a developer-first immutable audit log API for pre-compliance B2B SaaS
 
 **Phase 0 Status**: Foundation complete - API scaffold, worker scaffold, Prisma schema, and CDK infrastructure ready.
 
+**Architecture**: Single API URL with backend region routing; dashboard is the source of truth for tenants and API keys. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## Prerequisites
 
 Before you begin, make sure you have the following installed:
@@ -159,6 +161,12 @@ curl -H "x-internal-token: dev-internal-token-change-in-production" http://local
 - Root (`/`): `{"service":"hyrelog-api","version":"0.1.0","status":"running"}`
 - Health (`/internal/health`): `{"status":"ok","uptime":123,"timestamp":"2024-01-01T00:00:00.000Z","service":"hyrelog-api"}`
 - Metrics (`/internal/metrics`): JSON with placeholder metrics
+
+## OpenAPI (Public API spec)
+
+- **Spec URL (production):** [https://api.hyrelog.com/openapi.json](https://api.hyrelog.com/openapi.json)
+- The public spec documents the **full end-user API**: all `/v1/*` routes (Events, API Keys, Webhooks, Exports) plus `GET /health`. Dashboard and internal routes are **not** included (they have no `schema.tags`).
+- **Adding a route to the public docs:** On the route, set `schema.tags` to a non-empty array (e.g. `tags: ['Events']`) and define `schema.body` / `schema.response` as needed. Only routes with at least one tag appear in the public OpenAPI spec; **untagged routes are excluded**.
 
 ## MinIO Console (S3 Local Development)
 

@@ -47,7 +47,8 @@ export async function logDashboardAction(
         ip: typeof ip === 'string' ? ip : Array.isArray(ip) ? ip[0] : ip,
         userAgent,
         traceId,
-        metadata: context.metadata || {},
+        // Prisma Json type accepts object; ensure serializable and type-compatible
+        metadata: JSON.parse(JSON.stringify(context.metadata ?? {})) as Parameters<PrismaClientType['auditLog']['create']>[0]['data']['metadata'],
       },
     });
 

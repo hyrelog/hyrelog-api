@@ -72,8 +72,11 @@ export const dashboardAuthPlugin: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      // Check if company-scoped route (most dashboard routes are)
-      const isCompanyScoped = !request.url.startsWith('/dashboard/admin');
+      // Routes that do not require x-company-id (they get company from body or path)
+      const path = request.url.split('?')[0];
+      const postCompanies = request.method === 'POST' && path === '/dashboard/companies';
+      const getCompanyByParam = request.method === 'GET' && /^\/dashboard\/companies\/[^/]+$/.test(path);
+      const isCompanyScoped = !request.url.startsWith('/dashboard/admin') && !postCompanies && !getCompanyByParam;
       let companyId: string | undefined;
 
       if (isCompanyScoped) {
@@ -86,14 +89,20 @@ export const dashboardAuthPlugin: FastifyPluginAsync = async (fastify) => {
           });
         }
 
-        // Verify company exists and get region
+        // Resolve company and region: x-company-id may be dashboardCompanyId or api company id (id).
+        // Prefer lookup by dashboardCompanyId (spec: dashboard is source of truth).
         const regions = regionRouter.getAllRegions();
         let found = false;
         let companyRegion: string | null = null;
+        let resolvedCompanyId: string | null = null;
 
         for (const region of regions) {
           const prisma = regionRouter.getPrisma(region);
-          const company = await prisma.company.findUnique({
+          const byDashboardId = await prisma.company.findUnique({
+            where: { dashboardCompanyId: companyId },
+            select: { id: true, dataRegion: true },
+          });
+          const company = byDashboardId ?? await prisma.company.findUnique({
             where: { id: companyId },
             select: { id: true, dataRegion: true },
           });
@@ -101,6 +110,7 @@ export const dashboardAuthPlugin: FastifyPluginAsync = async (fastify) => {
           if (company) {
             found = true;
             companyRegion = company.dataRegion;
+            resolvedCompanyId = company.id;
             break;
           }
         }
@@ -113,10 +123,15 @@ export const dashboardAuthPlugin: FastifyPluginAsync = async (fastify) => {
           });
         }
 
+        companyId = resolvedCompanyId ?? companyId;
+
         // Attach region-specific Prisma client
         request.prisma = regionRouter.getPrisma(companyRegion as any);
+      } else if (postCompanies || getCompanyByParam) {
+        // POST /dashboard/companies or GET /dashboard/companies/:id – route will resolve region
+        request.prisma = undefined;
       } else {
-        // Admin routes - use US region as default (or first available)
+        // Admin routes - use US region as default
         request.prisma = regionRouter.getPrisma('US');
       }
 

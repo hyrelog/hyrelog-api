@@ -5,6 +5,7 @@
  * Plan-enforced: uses Company.plan + planOverrides from database
  */
 
+import fp from 'fastify-plugin';
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { requireCompanyFeature, getCompanyPlanConfig, PlanRestrictionError } from '../../lib/plans.js';
@@ -33,14 +34,50 @@ const CreateExportSchema = z.object({
   limit: z.coerce.number().int().positive().optional(),
 });
 
-export const exportsRoutes: FastifyPluginAsync = async (fastify) => {
+const createExportBodySchema = {
+  type: 'object' as const,
+  required: ['source', 'format'],
+  properties: {
+    source: { type: 'string', enum: ['HOT', 'ARCHIVED', 'HOT_AND_ARCHIVED'], description: 'Data source for export' },
+    format: { type: 'string', enum: ['JSONL', 'CSV'], description: 'Output format' },
+    filters: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', format: 'date-time' },
+        to: { type: 'string', format: 'date-time' },
+        category: { type: 'string' },
+        action: { type: 'string' },
+        workspaceId: { type: 'string', format: 'uuid' },
+        projectId: { type: 'string', format: 'uuid' },
+      },
+      description: 'Optional filters; from/to required for ARCHIVED',
+    },
+    limit: { type: 'integer', description: 'Max rows (plan-limited)' },
+  },
+};
+
+const exportsRoutesImpl: FastifyPluginAsync = async (fastify) => {
   /**
    * POST /v1/exports
    * Create an export job
    */
   fastify.post<{ Body: z.infer<typeof CreateExportSchema> }>(
-    '/exports',
-    async (request, reply) => {
+    '/v1/exports',
+    {
+      schema: {
+        tags: ['Exports'],
+        summary: 'Create export job',
+        description: 'Create a streaming export job. Requires Starter plan or higher. ARCHIVED/HOT_AND_ARCHIVED require from/to filters and may require archive restoration.',
+        body: createExportBodySchema,
+        response: {
+          201: {
+            type: 'object',
+            properties: { jobId: { type: 'string' }, status: { type: 'string' } },
+            required: ['jobId', 'status'],
+          },
+        },
+      },
+      handler: async (request, reply) => {
       // Auth plugin sets request.apiKey and request.prisma
       if (!request.apiKey || !request.prisma) {
         return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
@@ -165,7 +202,7 @@ export const exportsRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Determine workspace/project scope
-      let workspaceId: string | undefined = authContext.workspaceId;
+      let workspaceId: string | undefined = authContext.workspaceId ?? undefined;
       let projectId: string | undefined = filters?.projectId;
 
       // Enforce scope: workspace keys cannot specify workspaceId filter
@@ -218,6 +255,7 @@ export const exportsRoutes: FastifyPluginAsync = async (fastify) => {
         jobId: exportJob.id,
         status: exportJob.status,
       });
+    },
     }
   );
 
@@ -225,7 +263,33 @@ export const exportsRoutes: FastifyPluginAsync = async (fastify) => {
    * GET /v1/exports/:jobId
    * Get export job status
    */
-  fastify.get<{ Params: { jobId: string } }>('/exports/:jobId', async (request, reply) => {
+  fastify.get<{ Params: { jobId: string } }>('/v1/exports/:jobId', {
+    schema: {
+      tags: ['Exports'],
+      summary: 'Get export job status',
+      description: 'Get status and metadata for an export job.',
+      params: { type: 'object', properties: { jobId: { type: 'string' } }, required: ['jobId'] },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            status: { type: 'string' },
+            source: { type: 'string' },
+            format: { type: 'string' },
+            rowLimit: { type: 'string' },
+            rowsExported: { type: 'string' },
+            createdAt: { type: 'string', format: 'date-time' },
+            startedAt: { type: ['string', 'null'], format: 'date-time' },
+            finishedAt: { type: ['string', 'null'], format: 'date-time' },
+            errorCode: { type: ['string', 'null'] },
+            errorMessage: { type: ['string', 'null'] },
+          },
+          required: ['id', 'status', 'source', 'format', 'rowsExported', 'createdAt'],
+        },
+      },
+    },
+    handler: async (request, reply) => {
     // Auth plugin sets request.apiKey and request.prisma
     if (!request.apiKey || !request.prisma) {
       return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
@@ -273,6 +337,7 @@ export const exportsRoutes: FastifyPluginAsync = async (fastify) => {
       errorCode: exportJob.errorCode,
       errorMessage: exportJob.errorMessage,
     });
+  },
   });
 
   /**
@@ -280,8 +345,21 @@ export const exportsRoutes: FastifyPluginAsync = async (fastify) => {
    * Stream export data
    */
   fastify.get<{ Params: { jobId: string } }>(
-    '/exports/:jobId/download',
-    async (request, reply) => {
+    '/v1/exports/:jobId/download',
+    {
+      schema: {
+        tags: ['Exports'],
+        summary: 'Download export',
+        description: 'Stream export data (JSONL or CSV). Content-Type and Content-Disposition set on response. Job must be in PENDING or RUNNING state.',
+        params: { type: 'object', properties: { jobId: { type: 'string' } }, required: ['jobId'] },
+        response: {
+          200: {
+            description: 'Stream of export data (application/x-ndjson or text/csv). Use GET after job is created; response is streamed.',
+            type: 'string',
+          },
+        },
+      },
+      handler: async (request, reply) => {
       // Auth plugin sets request.apiKey and request.prisma
       if (!request.apiKey || !request.prisma) {
         return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
@@ -453,9 +531,12 @@ export const exportsRoutes: FastifyPluginAsync = async (fastify) => {
           message: error.message,
         });
       }
+    },
     }
   );
 };
+
+export const exportsRoutes = fp(exportsRoutesImpl, { name: 'v1-exports-routes' });
 
 /**
  * Stream HOT data from Postgres
@@ -680,12 +761,12 @@ async function streamArchivedData(
       // Filter out objects that are currently restored (restoredUntil > now)
       const now = new Date();
       const coldArchivedNeedingRestore = coldArchivedObjects.filter(
-        (obj) => !obj.restoredUntil || obj.restoredUntil < now
+        (obj: { id: string; restoredUntil: Date | null }) => !obj.restoredUntil || obj.restoredUntil < now
       );
 
       if (coldArchivedNeedingRestore.length > 0) {
         // Check if any have active restore requests
-        const archiveIds = coldArchivedNeedingRestore.map((a) => a.id);
+        const archiveIds = coldArchivedNeedingRestore.map((a: { id: string }) => a.id);
         const activeRestores = await prisma.glacierRestoreRequest.findMany({
           where: {
             companyId: authContext.companyId,
@@ -696,8 +777,8 @@ async function streamArchivedData(
           select: { archiveId: true },
         });
 
-        const activeRestoreArchiveIds = new Set(activeRestores.map((r) => r.archiveId));
-        const archivesRequiringRestore = archiveIds.filter((id) => !activeRestoreArchiveIds.has(id));
+        const activeRestoreArchiveIds = new Set(activeRestores.map((r: { archiveId: string }) => r.archiveId));
+        const archivesRequiringRestore = archiveIds.filter((id: string) => !activeRestoreArchiveIds.has(id));
 
         if (archivesRequiringRestore.length > 0) {
           logger.warn(
@@ -721,6 +802,7 @@ async function streamArchivedData(
       }
 
   // If no archives found, return empty stream
+  const coldArchivedCount = coldArchivedObjects.length;
   if (archiveObjects.length === 0) {
     logger.info(
       {

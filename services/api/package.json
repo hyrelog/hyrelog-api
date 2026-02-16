@@ -17,10 +17,13 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.654.0",
+    "@fastify/cors": "^8.5.0",
+    "@fastify/swagger": "^8.15.0",
     "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "^7.2.0",
     "dotenv": "^16.4.5",
     "fastify": "^4.26.0",
+    "fastify-plugin": "^4.5.1",
     "pg": "^8.11.3",
     "pino": "^9.3.0",
     "pino-pretty": "^11.0.0",
@@ -37,4 +40,3 @@
     "typescript": "^5.3.3"
   }
 }
-

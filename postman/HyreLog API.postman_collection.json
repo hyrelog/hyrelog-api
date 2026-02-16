@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "hyrelog-api-collection",
 		"name": "HyreLog API",
-		"description": "HyreLog API - Phase 3 Collection\n\nCore API MVP with event ingestion, querying, key management, webhooks, and exports.\n\n**Setup:**\n1. Run `npm run seed` (optionally with SEED_PLAN_TIER=STARTER for exports, GROWTH for webhooks)\n2. Copy the API keys and IDs from seed output\n3. Set them in the Postman environment variables\n4. For webhook testing: start webhook receiver (`node tools/webhook-receiver.js`)\n5. For export testing: ensure STARTER+ plan (FREE plan will be rejected)",
+		"description": "HyreLog API – Full collection.\n\n**V1 API:** Event ingestion, query, keys status, webhooks, exports (Bearer API key).\n**Dashboard:** Provisioning (companies, workspaces, keys), company-scoped reads, restore, admin (x-dashboard-token).\n\n**Setup:**\n1. Seed: `npm run seed` (optionally SEED_PLAN_TIER=STARTER/GROWTH)\n2. Set env: company_key, workspace_key, company_id, workspace_id, project_id, dashboard_token (from API .env DASHBOARD_SERVICE_TOKEN)\n3. For Dashboard flows set dashboard_company_id, dashboard_workspace_id, api_company_id (from Provision Company response).",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -79,6 +79,839 @@
 				}
 			],
 			"description": "Internal endpoints requiring authentication"
+		},
+		{
+			"name": "Dashboard",
+			"description": "Dashboard API (contract + proxy). All require x-dashboard-token. Set dashboard_token in env. For company-scoped routes set x-company-id (api_company_id or dashboard_company_id).",
+			"item": [
+				{
+					"name": "Companies",
+					"item": [
+						{
+							"name": "Provision Company",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "x-request-id",
+										"value": "{{$guid}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"dashboardCompanyId\": \"{{dashboard_company_id}}\",\n  \"slug\": \"acme\",\n  \"name\": \"Acme Inc\",\n  \"dataRegion\": \"US\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/dashboard/companies",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"companies"
+									]
+								},
+								"description": "Idempotent company provisioning. Returns apiCompanyId, created. Save apiCompanyId to api_company_id for x-company-id."
+							},
+							"response": []
+						},
+						{
+							"name": "Get Company by dashboard ID",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/dashboard/companies/{{dashboard_company_id}}",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"companies",
+										"{{dashboard_company_id}}"
+									]
+								},
+								"description": "Reconciliation: exists, apiCompanyId, dataRegion, updatedAt."
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "Workspaces",
+					"item": [
+						{
+							"name": "Provision Workspace",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"dashboardWorkspaceId\": \"{{dashboard_workspace_id}}\",\n  \"dashboardCompanyId\": \"{{dashboard_company_id}}\",\n  \"slug\": \"main\",\n  \"name\": \"Main Workspace\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/dashboard/workspaces",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"workspaces"
+									]
+								},
+								"description": "Idempotent workspace provisioning. Company must exist. Returns apiWorkspaceId, apiCompanyId, created."
+							},
+							"response": []
+						},
+						{
+							"name": "Get Workspace by dashboard ID",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/dashboard/workspaces/{{dashboard_workspace_id}}",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"workspaces",
+										"{{dashboard_workspace_id}}"
+									]
+								},
+								"description": "Reconciliation: exists, apiWorkspaceId, apiCompanyId, status."
+							},
+							"response": []
+						},
+						{
+							"name": "Archive Workspace",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"archivedAt\": \"{{$isoTimestamp}}\",\n  \"revokeAllKeys\": true\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/dashboard/workspaces/{{dashboard_workspace_id}}/archive",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"workspaces",
+										"{{dashboard_workspace_id}}",
+										"archive"
+									]
+								},
+								"description": "Set workspace ARCHIVED; optionally revoke all workspace keys. Returns keysRevokedCount."
+							},
+							"response": []
+						},
+						{
+							"name": "Restore Workspace",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"restoredAt\": \"{{$isoTimestamp}}\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/dashboard/workspaces/{{dashboard_workspace_id}}/restore",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"workspaces",
+										"{{dashboard_workspace_id}}",
+										"restore"
+									]
+								},
+								"description": "Set workspace ACTIVE. Does NOT un-revoke keys."
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "API Keys",
+					"item": [
+						{
+							"name": "Sync API Key",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"dashboardKeyId\": \"{{dashboard_key_id}}\",\n  \"scope\": \"ws\",\n  \"dashboardCompanyId\": \"{{dashboard_company_id}}\",\n  \"dashboardWorkspaceId\": \"{{dashboard_workspace_id}}\",\n  \"name\": \"Test Key\",\n  \"prefix\": \"hlk_us_ws_abc12345\",\n  \"hash\": \"<sha256-hex-from-dashboard>\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/dashboard/api-keys",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"api-keys"
+									]
+								},
+								"description": "Idempotent key sync. prefix must match hlk_{region}_{scope}_...; region must match company dataRegion. scope: co or ws. For ws, dashboardWorkspaceId required. hash = hashed key from dashboard."
+							},
+							"response": []
+						},
+						{
+							"name": "Revoke API Key",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"revokedAt\": \"{{$isoTimestamp}}\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/dashboard/api-keys/{{dashboard_key_id}}/revoke",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"api-keys",
+										"{{dashboard_key_id}}",
+										"revoke"
+									]
+								},
+								"description": "Idempotent revoke. Sets revokedAt; key rejected on next use."
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "Company-scoped (x-company-id)",
+					"item": [
+						{
+							"name": "GET Company",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "x-company-id",
+										"value": "{{api_company_id}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/dashboard/company",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"company"
+									]
+								},
+								"description": "Company summary with plan and region. Requires x-company-id."
+							},
+							"response": []
+						},
+						{
+							"name": "GET Events",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "x-company-id",
+										"value": "{{api_company_id}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/dashboard/events?limit=20",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"events"
+									],
+									"query": [
+										{
+											"key": "limit",
+											"value": "20"
+										}
+									]
+								},
+								"description": "Query events (company-scoped)."
+							},
+							"response": []
+						},
+						{
+							"name": "POST Create Export",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "x-company-id",
+										"value": "{{api_company_id}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"source\": \"HOT\",\n  \"format\": \"JSONL\",\n  \"filters\": {}\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/dashboard/exports",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"exports"
+									]
+								},
+								"description": "Create export (may return 501 NOT_IMPLEMENTED)."
+							},
+							"response": []
+						},
+						{
+							"name": "GET Export Status",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "x-company-id",
+										"value": "{{api_company_id}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/dashboard/exports/{{export_job_id}}",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"exports",
+										"{{export_job_id}}"
+									]
+								},
+								"description": "Get export job status."
+							},
+							"response": []
+						},
+						{
+							"name": "GET Webhooks",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "x-company-id",
+										"value": "{{api_company_id}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/dashboard/webhooks",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"webhooks"
+									]
+								},
+								"description": "List webhooks (company context)."
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "Restore",
+					"item": [
+						{
+							"name": "Create Restore Request",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "x-company-id",
+										"value": "{{api_company_id}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"archiveId\": \"{{archive_id}}\",\n  \"tier\": \"STANDARD\",\n  \"days\": 7\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/dashboard/restore-requests",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"restore-requests"
+									]
+								},
+								"description": "Create Glacier/cold archive restore request. Plan-gated."
+							},
+							"response": []
+						},
+						{
+							"name": "List Restore Requests",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "x-company-id",
+										"value": "{{api_company_id}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/dashboard/restore-requests",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"restore-requests"
+									]
+								},
+								"description": "List restore requests for company."
+							},
+							"response": []
+						},
+						{
+							"name": "Get Restore Request",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "x-company-id",
+										"value": "{{api_company_id}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/dashboard/restore-requests/{{restore_request_id}}",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"restore-requests",
+										"{{restore_request_id}}"
+									]
+								},
+								"description": "Get restore request detail."
+							},
+							"response": []
+						},
+						{
+							"name": "Cancel Restore Request",
+							"request": {
+								"method": "DELETE",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "x-company-id",
+										"value": "{{api_company_id}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/dashboard/restore-requests/{{restore_request_id}}",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"restore-requests",
+										"{{restore_request_id}}"
+									]
+								},
+								"description": "Cancel a restore request."
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "Admin",
+					"item": [
+						{
+							"name": "List Companies",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "x-user-role",
+										"value": "HYRELOG_ADMIN",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/dashboard/admin/companies?limit=50",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"admin",
+										"companies"
+									],
+									"query": [
+										{
+											"key": "limit",
+											"value": "50"
+										}
+									]
+								},
+								"description": "Admin: list companies. Requires userRole HYRELOG_ADMIN."
+							},
+							"response": []
+						},
+						{
+							"name": "List Plans",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "x-user-role",
+										"value": "HYRELOG_ADMIN",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/dashboard/admin/plans",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"admin",
+										"plans"
+									]
+								},
+								"description": "Admin: list plans."
+							},
+							"response": []
+						},
+						{
+							"name": "Assign Plan to Company",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"planId\": \"{{plan_id}}\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/dashboard/admin/companies/{{api_company_id}}/plan",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"admin",
+										"companies",
+										"{{api_company_id}}",
+										"plan"
+									]
+								},
+								"description": "Admin: assign plan to company. plan_id = Plan UUID from List Plans."
+							},
+							"response": []
+						},
+						{
+							"name": "List Restore Requests (Admin)",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "x-user-role",
+										"value": "HYRELOG_ADMIN",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/dashboard/admin/restore-requests",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"admin",
+										"restore-requests"
+									]
+								},
+								"description": "Admin: list all restore requests."
+							},
+							"response": []
+						},
+						{
+							"name": "Approve Restore",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/dashboard/admin/restore-requests/{{restore_request_id}}/approve",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"admin",
+										"restore-requests",
+										"{{restore_request_id}}",
+										"approve"
+									]
+								},
+								"description": "Admin: approve restore request."
+							},
+							"response": []
+						},
+						{
+							"name": "Reject Restore",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"reason\": \"Optional reason\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/dashboard/admin/restore-requests/{{restore_request_id}}/reject",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"admin",
+										"restore-requests",
+										"{{restore_request_id}}",
+										"reject"
+									]
+								},
+								"description": "Admin: reject restore request."
+							},
+							"response": []
+						},
+						{
+							"name": "Audit Logs",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "x-dashboard-token",
+										"value": "{{dashboard_token}}",
+										"type": "text"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/dashboard/admin/audit-logs?limit=50",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"dashboard",
+										"admin",
+										"audit-logs"
+									],
+									"query": [
+										{
+											"key": "limit",
+											"value": "50"
+										}
+									]
+								},
+								"description": "Admin: list audit log entries."
+							},
+							"response": []
+						}
+					]
+				}
+			]
 		},
 		{
 			"name": "V1 API",
@@ -287,7 +1120,7 @@
 										"keys"
 									]
 								},
-								"description": "Create a workspace API key. Requires company key with IP allowlist.\n\n**Security Requirements:**\n- Company key must have IP allowlist configured\n- Rate limited to 10 operations per minute\n- All operations are logged for audit\n\n**Note:** The plaintext key is returned only once in the response.\n\n**Company Key Creation:** Company keys can only be created through the dashboard (not available via API for security)."
+								"description": "**Returns 403 FORBIDDEN** – Key creation is dashboard-only. Use the Dashboard to create API keys; dashboard syncs to API via POST /dashboard/api-keys. This endpoint is kept in the collection for reference."
 							},
 							"response": []
 						},
@@ -341,7 +1174,7 @@
 										"rotate"
 									]
 								},
-								"description": "Rotate an API key. Requires company key with IP allowlist.\n\n**Security Requirements:**\n- Company key must have IP allowlist configured\n- Rate limited to 10 operations per minute\n- All operations are logged for audit\n\n**Note:**\n- Creates a new key and marks the old one as revoked\n- Returns the new plaintext key (shown only once)\n- Set `key_id` environment variable to the key ID you want to rotate\n\n**Revoke Key:** Key revocation is now dashboard-only for security. Use the dashboard to revoke keys with proper confirmation dialogs."
+								"description": "**Returns 403 FORBIDDEN** – Key rotation is dashboard-only. Use the Dashboard to rotate keys. Revocation is via POST /dashboard/api-keys/:dashboardKeyId/revoke. Set `key_id` for reference only."
 							},
 							"response": []
 						}

@@ -242,7 +242,7 @@ async function seed() {
 
     // Create Company Key
     // IMPORTANT: Add IP allowlist for key management operations (webhooks, key creation, etc.)
-    const companyKeyPlaintext = generateApiKey('COMPANY');
+    const companyKeyPlaintext = generateApiKey('COMPANY', region);
     const companyKeyHashed = hashApiKey(companyKeyPlaintext);
     const companyKey = await prisma.apiKey.create({
       data: {
@@ -258,7 +258,7 @@ async function seed() {
     console.log(`✅ Created company API key: ${companyKey.id}`);
 
     // Create Workspace Key
-    const workspaceKeyPlaintext = generateApiKey('WORKSPACE');
+    const workspaceKeyPlaintext = generateApiKey('WORKSPACE', region);
     const workspaceKeyHashed = hashApiKey(workspaceKeyPlaintext);
     const workspaceKey = await prisma.apiKey.create({
       data: {

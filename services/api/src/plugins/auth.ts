@@ -1,6 +1,6 @@
 import { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { getRegionRouter } from '../lib/regionRouter.js';
-import { hashApiKey, parseApiKeyFromHeader, type ApiKeyInfo } from '../lib/apiKey.js';
+import { hashApiKey, parseApiKeyFromHeader, parseKeyPrefix, type ApiKeyInfo } from '../lib/apiKey.js';
 import { getApiKeyCache } from '../lib/apiKeyCache.js';
 import { getLogger } from '../lib/logger.js';
 import { getTraceId } from '../lib/trace.js';
@@ -47,6 +47,12 @@ export const authPlugin: FastifyPluginAsync = async (fastify) => {
         return;
       }
 
+      // Skip auth for public OpenAPI spec and health check
+      if (request.url.startsWith('/health') || request.url.startsWith('/openapi.json')) {
+        logger.debug({ url: request.url }, 'Auth plugin: Skipping public route');
+        return;
+      }
+
         logger.info({ url: request.url, hasAuth: !!request.headers.authorization }, 'Auth plugin: processing request');
 
       // Parse API key from Authorization header
@@ -69,11 +75,15 @@ export const authPlugin: FastifyPluginAsync = async (fastify) => {
       let apiKeyInfo = cache.get(hashedKey);
 
       if (!apiKeyInfo) {
-        // Search across all regions
+        // If key prefix includes region (hlk_us_co_..., hlk_au_ws_...), try that region first
+        const parsed = parseKeyPrefix(plaintextKey);
+        const allRegions = regionRouter.getAllRegions();
+        const regionsToTry =
+          parsed?.region
+            ? [parsed.region, ...allRegions.filter((r) => r !== parsed.region)]
+            : allRegions;
         let found = false;
-        const regions = regionRouter.getAllRegions();
-
-        for (const region of regions) {
+        for (const region of regionsToTry) {
           const prisma = regionRouter.getPrisma(region);
 
           const apiKey = await prisma.apiKey.findFirst({
@@ -85,8 +95,8 @@ export const authPlugin: FastifyPluginAsync = async (fastify) => {
           });
 
           if (apiKey) {
-            // Verify status
-            if (apiKey.status !== 'ACTIVE') {
+            // Enforce revocation (spec: revocations take effect in seconds)
+            if (apiKey.revokedAt != null || apiKey.status !== 'ACTIVE') {
               return reply.code(401).send({
                 error: 'API key is revoked',
                 code: 'UNAUTHORIZED',
@@ -129,12 +139,17 @@ export const authPlugin: FastifyPluginAsync = async (fastify) => {
               });
             }
 
+            const workspaceStatus = apiKey.workspace?.status ?? (apiKey.workspaceId
+              ? (await prisma.workspace.findUnique({ where: { id: apiKey.workspaceId }, select: { status: true } }))?.status
+              : undefined);
+
             apiKeyInfo = {
               id: apiKey.id,
               region: company.dataRegion,
               scope: apiKey.scope as 'COMPANY' | 'WORKSPACE',
               companyId: apiKey.companyId || '',
               workspaceId: apiKey.workspaceId,
+              workspaceStatus: workspaceStatus as 'ACTIVE' | 'ARCHIVED' | undefined,
               status: apiKey.status as 'ACTIVE' | 'REVOKED',
               expiresAt: apiKey.expiresAt,
               ipAllowlist: apiKey.ipAllowlist,
@@ -148,11 +163,11 @@ export const authPlugin: FastifyPluginAsync = async (fastify) => {
         }
 
         if (!found || !apiKeyInfo) {
-          logger.warn({ 
-            url: request.url, 
+          logger.warn({
+            url: request.url,
             hashedKey: hashedKey.substring(0, 20) + '...',
             plaintextPrefix: plaintextKey.substring(0, 20) + '...',
-            regionsSearched: regions.length 
+            regionsSearched: regionsToTry.length,
           }, 'Auth plugin: API key not found in any region');
           return reply.code(401).send({
             error: 'Invalid API key',
@@ -242,6 +257,12 @@ export function setupAuthHook(server: any): void {
         return;
       }
 
+      // Skip auth for public OpenAPI spec and health check
+      if (request.url.startsWith('/health') || request.url.startsWith('/openapi.json')) {
+        logger.debug({ url: request.url }, 'Auth hook: Skipping public route');
+        return;
+      }
+
       logger.info({ url: request.url, hasAuth: !!request.headers.authorization }, 'Auth hook: Processing request');
 
       // Parse API key from Authorization header
@@ -264,11 +285,15 @@ export function setupAuthHook(server: any): void {
       let apiKeyInfo = cache.get(hashedKey);
 
       if (!apiKeyInfo) {
-        // Search across all regions
+        // If key prefix includes region (hlk_us_co_..., hlk_au_ws_...), try that region first
+        const parsed = parseKeyPrefix(plaintextKey);
+        const allRegions = regionRouter.getAllRegions();
+        const regionsToTry =
+          parsed?.region
+            ? [parsed.region, ...allRegions.filter((r) => r !== parsed.region)]
+            : allRegions;
         let found = false;
-        const regions = regionRouter.getAllRegions();
-
-        for (const region of regions) {
+        for (const region of regionsToTry) {
           const prisma = regionRouter.getPrisma(region);
 
           const apiKey = await prisma.apiKey.findFirst({
@@ -280,8 +305,8 @@ export function setupAuthHook(server: any): void {
           });
 
           if (apiKey) {
-            // Verify status
-            if (apiKey.status !== 'ACTIVE') {
+            // Enforce revocation (spec: revocations take effect in seconds)
+            if (apiKey.revokedAt != null || apiKey.status !== 'ACTIVE') {
               return reply.code(401).send({
                 error: 'API key is revoked',
                 code: 'UNAUTHORIZED',
@@ -324,12 +349,17 @@ export function setupAuthHook(server: any): void {
               });
             }
 
+            const workspaceStatus = apiKey.workspace?.status ?? (apiKey.workspaceId
+              ? (await prisma.workspace.findUnique({ where: { id: apiKey.workspaceId }, select: { status: true } }))?.status
+              : undefined);
+
             apiKeyInfo = {
               id: apiKey.id,
               region: company.dataRegion,
               scope: apiKey.scope as 'COMPANY' | 'WORKSPACE',
               companyId: apiKey.companyId || '',
               workspaceId: apiKey.workspaceId,
+              workspaceStatus: workspaceStatus as 'ACTIVE' | 'ARCHIVED' | undefined,
               status: apiKey.status as 'ACTIVE' | 'REVOKED',
               expiresAt: apiKey.expiresAt,
               ipAllowlist: apiKey.ipAllowlist,
@@ -343,11 +373,11 @@ export function setupAuthHook(server: any): void {
         }
 
         if (!found || !apiKeyInfo) {
-          logger.warn({ 
-            url: request.url, 
+          logger.warn({
+            url: request.url,
             hashedKey: hashedKey.substring(0, 20) + '...',
             plaintextPrefix: plaintextKey.substring(0, 20) + '...',
-            regionsSearched: regions.length 
+            regionsSearched: regionsToTry.length,
           }, 'Auth hook: API key not found in any region');
           return reply.code(401).send({
             error: 'Invalid API key',

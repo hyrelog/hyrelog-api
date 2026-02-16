@@ -7,6 +7,8 @@ import { internalAuthPlugin } from './plugins/internalAuth.js';
 import { rateLimitPlugin } from './plugins/rateLimit.js';
 import { setupAuthHook } from './plugins/auth.js';
 import { dashboardAuthPlugin } from './plugins/dashboardAuth.js';
+import fp from 'fastify-plugin';
+import { openapiPlugin } from './plugins/openapi.js';
 import { healthRoutes } from './routes/internal/health.js';
 import { metricsRoutes } from './routes/internal/metrics.js';
 import { v1Routes } from './routes/v1/index.js';
@@ -41,10 +43,14 @@ async function buildServer() {
   // Note: rateLimitPlugin should run AFTER auth so it can access request.apiKey
   await server.register(rateLimitPlugin);
 
+  // OpenAPI + CORS. Wrap with fastify-plugin so swagger's onRoute runs on root and sees v1 routes.
+  await server.register(fp(openapiPlugin));
+
   // Register routes
   await server.register(healthRoutes, { prefix: '/internal' });
   await server.register(metricsRoutes, { prefix: '/internal' });
-  await server.register(v1Routes, { prefix: '/v1' });
+  // v1 routes registered without prefix so @fastify/swagger discovers them; paths use /v1/... inside route files
+  await server.register(v1Routes);
   await server.register(dashboardRoutes, { prefix: '/dashboard' });
 
   // Root route
