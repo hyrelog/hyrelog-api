@@ -41,7 +41,13 @@ export const rateLimitPlugin: FastifyPluginAsync = async (fastify) => {
 
     // Check API key rate limit (if authenticated)
     if (request.apiKey) {
-      const keyCheck = rateLimiter.check(request.apiKey.id, 'apiKey');
+      const { loadConfig } = await import('../lib/config.js');
+      const config = loadConfig();
+      const path = request.url.split('?')[0];
+      const isEventIngest = request.method === 'POST' && path === '/v1/events';
+      const customLimit = isEventIngest ? config.rateLimitEventsPerMin : undefined;
+      const bucketKey = isEventIngest ? `${request.apiKey.id}:events` : request.apiKey.id;
+      const keyCheck = rateLimiter.check(bucketKey, 'apiKey', customLimit);
       if (!keyCheck.allowed) {
         reply.header('X-RateLimit-Limit', keyCheck.resetAt.getTime().toString());
         reply.header('X-RateLimit-Remaining', '0');

@@ -5,6 +5,8 @@ import { createHash } from 'crypto';
 import { canonicalJson } from '../../lib/canonicalJson.js';
 import { getTraceId } from '../../lib/trace.js';
 import { enqueueWebhookJobs } from '../../lib/webhookEnqueue.js';
+import { getUsageForCompany, incrementUsage } from '../../lib/usageService.js';
+import { getCompanyPlanConfig } from '../../lib/plans.js';
 
 const IngestEventSchema = z.object({
   timestamp: z.string().datetime().optional(),
@@ -111,6 +113,42 @@ const eventsRoutesImpl: FastifyPluginAsync = async (fastify) => {
       });
     }
 
+    const prisma = request.prisma;
+    const apiKey = request.apiKey;
+
+    const company = await prisma.company.findUnique({
+      where: { id: apiKeyRef.companyId },
+      select: { planTier: true, planOverrides: true, billingStatus: true, trialEndsAt: true },
+    });
+
+    if (!company) {
+      return reply.code(401).send({
+        error: 'Company not found',
+        code: 'UNAUTHORIZED',
+      });
+    }
+
+    if (company.billingStatus === 'TRIALING' && company.trialEndsAt && new Date(company.trialEndsAt) < new Date()) {
+      return reply.code(403).send({
+        error: 'Trial has ended. Upgrade to continue ingesting events.',
+        code: 'TRIAL_EXPIRED',
+      });
+    }
+
+    const usage = await getUsageForCompany(apiKeyRef.companyId);
+    if (usage) {
+      const planConfig = getCompanyPlanConfig({
+        planTier: company.planTier,
+        planOverrides: company.planOverrides as any,
+      });
+      if (usage.eventsIngested >= planConfig.monthlyEventLimit) {
+        return reply.code(403).send({
+          error: `Monthly event limit (${planConfig.monthlyEventLimit}) exceeded. Upgrade your plan or wait for the next billing period.`,
+          code: 'PLAN_LIMIT_EXCEEDED',
+        });
+      }
+    }
+
     // Validate request body
     const bodyResult = IngestEventSchema.safeParse(request.body);
     if (!bodyResult.success) {
@@ -122,8 +160,7 @@ const eventsRoutesImpl: FastifyPluginAsync = async (fastify) => {
     }
 
     const data = bodyResult.data;
-    const prisma = request.prisma;
-    const apiKey = request.apiKey;
+    const apiKeyRef = request.apiKey;
 
     // Determine timestamp
     const timestamp = data.timestamp ? new Date(data.timestamp) : new Date();
@@ -147,7 +184,7 @@ const eventsRoutesImpl: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      if (project.workspaceId !== apiKey.workspaceId) {
+      if (project.workspaceId !== apiKeyRef.workspaceId) {
         return reply.code(403).send({
           error: 'Project does not belong to this workspace',
           code: 'FORBIDDEN',
@@ -158,7 +195,7 @@ const eventsRoutesImpl: FastifyPluginAsync = async (fastify) => {
     // Check idempotency
     if (data.idempotencyKey) {
       const idempotencyHash = createHash('sha256')
-        .update(`${apiKey.companyId}${apiKey.workspaceId}${data.projectId || ''}${data.idempotencyKey}${canonicalJson(data)}`)
+        .update(`${apiKeyRef.companyId}${apiKeyRef.workspaceId}${data.projectId || ''}${data.idempotencyKey}${canonicalJson(data)}`)
         .digest('hex');
 
       const existing = await prisma.auditEvent.findFirst({
@@ -176,8 +213,8 @@ const eventsRoutesImpl: FastifyPluginAsync = async (fastify) => {
     // Find latest event for hash chain
     const latestEvent = await prisma.auditEvent.findFirst({
       where: {
-        companyId: apiKey.companyId,
-        workspaceId: apiKey.workspaceId!,
+        companyId: apiKeyRef.companyId,
+        workspaceId: apiKeyRef.workspaceId!,
         projectId: data.projectId || null,
       },
       orderBy: { createdAt: 'desc' },
@@ -187,8 +224,8 @@ const eventsRoutesImpl: FastifyPluginAsync = async (fastify) => {
 
     // Build event object for hashing
     const eventForHash = {
-      companyId: apiKey.companyId,
-      workspaceId: apiKey.workspaceId!,
+      companyId: apiKeyRef.companyId,
+      workspaceId: apiKeyRef.workspaceId!,
       projectId: data.projectId || null,
       timestamp: timestamp.toISOString(),
       category: data.category,
@@ -210,7 +247,7 @@ const eventsRoutesImpl: FastifyPluginAsync = async (fastify) => {
     // Calculate idempotency hash if provided
     const idempotencyHash = data.idempotencyKey
       ? createHash('sha256')
-          .update(`${apiKey.companyId}${apiKey.workspaceId}${data.projectId || ''}${data.idempotencyKey}${canonicalJson(data)}`)
+          .update(`${apiKeyRef.companyId}${apiKeyRef.workspaceId}${data.projectId || ''}${data.idempotencyKey}${canonicalJson(data)}`)
           .digest('hex')
       : null;
 
@@ -225,8 +262,8 @@ const eventsRoutesImpl: FastifyPluginAsync = async (fastify) => {
     try {
       event = await prisma.auditEvent.create({
         data: {
-          companyId: apiKey.companyId,
-          workspaceId: apiKey.workspaceId!,
+          companyId: apiKeyRef.companyId,
+          workspaceId: apiKeyRef.workspaceId!,
           projectId: data.projectId || null,
           timestamp,
           category: data.category,
@@ -244,14 +281,15 @@ const eventsRoutesImpl: FastifyPluginAsync = async (fastify) => {
           hash,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           idempotencyHash: idempotencyHash as any,
-          dataRegion: apiKey.region,
+          dataRegion: apiKeyRef.region,
         } as any,
       });
+      incrementUsage(apiKeyRef.companyId, 'event').catch(() => {});
       const logger = (await import('../../lib/logger.js')).getLogger();
-      logger.info({ eventId: event.id, companyId: apiKey.companyId, workspaceId: apiKey.workspaceId, traceId }, 'Event created successfully');
+      logger.info({ eventId: event.id, companyId: apiKeyRef.companyId, workspaceId: apiKeyRef.workspaceId, traceId }, 'Event created successfully');
     } catch (createError: any) {
       const logger = (await import('../../lib/logger.js')).getLogger();
-      logger.error({ err: createError, traceId, companyId: apiKey.companyId, workspaceId: apiKey.workspaceId }, 'Failed to create event');
+      logger.error({ err: createError, traceId, companyId: apiKeyRef.companyId, workspaceId: apiKeyRef.workspaceId }, 'Failed to create event');
       throw createError; // Re-throw to let error handler deal with it
     }
 
@@ -259,8 +297,8 @@ const eventsRoutesImpl: FastifyPluginAsync = async (fastify) => {
     enqueueWebhookJobs(
       prisma,
       event.id,
-      apiKey.companyId,
-      apiKey.workspaceId!,
+      apiKeyRef.companyId,
+      apiKeyRef.workspaceId!,
       data.projectId || null,
       traceId
     ).catch(async (err) => {

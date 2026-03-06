@@ -333,6 +333,59 @@ export const companyRoutes: FastifyPluginAsync = async (fastify) => {
   // For now, we'll create wrapper endpoints that call the existing logic
 
   /**
+   * GET /dashboard/exports
+   * List export jobs for the company
+   */
+  fastify.get('/exports', async (request, reply) => {
+    if (!request.dashboardAuth || !request.prisma) {
+      return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+    }
+
+    const { companyId } = request.dashboardAuth;
+    if (!companyId) {
+      return reply.code(400).send({ error: 'Missing company ID', code: 'VALIDATION_ERROR' });
+    }
+
+    const prisma = request.prisma;
+
+    try {
+      const jobs = await prisma.exportJob.findMany({
+        where: { companyId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: {
+          id: true,
+          status: true,
+          source: true,
+          format: true,
+          rowLimit: true,
+          rowsExported: true,
+          createdAt: true,
+          finishedAt: true,
+          errorCode: true,
+        },
+      });
+
+      return reply.send({
+        jobs: jobs.map((j) => ({
+          id: j.id,
+          status: j.status,
+          source: j.source,
+          format: j.format,
+          rowLimit: j.rowLimit.toString(),
+          rowsExported: j.rowsExported.toString(),
+          createdAt: j.createdAt.toISOString(),
+          finishedAt: j.finishedAt?.toISOString(),
+          errorCode: j.errorCode,
+        })),
+      });
+    } catch (error: any) {
+      logger.error({ err: error, companyId }, 'Dashboard: Failed to list export jobs');
+      return reply.code(500).send({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+    }
+  });
+
+  /**
    * POST /dashboard/exports
    * Create export (wraps /v1/exports logic with dashboard auth)
    */

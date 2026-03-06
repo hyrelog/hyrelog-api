@@ -53,6 +53,12 @@ export const authPlugin: FastifyPluginAsync = async (fastify) => {
         return;
       }
 
+      // Skip auth for dashboard service routes (they use x-dashboard-token via dashboardAuthPlugin)
+      if (request.url.startsWith('/dashboard')) {
+        logger.debug({ url: request.url }, 'Auth plugin: Skipping dashboard route');
+        return;
+      }
+
         logger.info({ url: request.url, hasAuth: !!request.headers.authorization }, 'Auth plugin: processing request');
 
       // Parse API key from Authorization header

@@ -25,11 +25,15 @@ export interface PlanConfig {
   webhooksEnabled: boolean;
   maxWebhooks: number;
   streamingExportsEnabled: boolean;
-  maxExportRows: bigint; // BigInt to support large values
+  maxExportRows: bigint;
   hotRetentionDays: number;
   archiveRetentionDays?: number;
   coldArchiveAfterDays?: number;
   allowCustomCategories: boolean;
+  /** Max events per billing period (monthly). */
+  monthlyEventLimit: number;
+  /** Max export jobs per billing period (monthly). */
+  monthlyExportLimit: number;
 }
 
 /**
@@ -43,15 +47,19 @@ const PLAN_CONFIGS: Record<PlanTier, PlanConfig> = {
     maxExportRows: BigInt(10_000),
     hotRetentionDays: 7,
     allowCustomCategories: false,
+    monthlyEventLimit: 1_000,
+    monthlyExportLimit: 0,
   },
   STARTER: {
     webhooksEnabled: false,
     maxWebhooks: 0,
-    streamingExportsEnabled: true, // Active data only (Phase 3)
+    streamingExportsEnabled: true,
     maxExportRows: BigInt(250_000),
     hotRetentionDays: 30,
     archiveRetentionDays: 180,
     allowCustomCategories: true,
+    monthlyEventLimit: 100_000,
+    monthlyExportLimit: 10,
   },
   GROWTH: {
     webhooksEnabled: true,
@@ -62,16 +70,20 @@ const PLAN_CONFIGS: Record<PlanTier, PlanConfig> = {
     archiveRetentionDays: 365,
     coldArchiveAfterDays: 365,
     allowCustomCategories: true,
+    monthlyEventLimit: 1_000_000,
+    monthlyExportLimit: 50,
   },
   ENTERPRISE: {
     webhooksEnabled: true,
     maxWebhooks: 20,
     streamingExportsEnabled: true,
-    maxExportRows: BigInt('999999999999'), // Effectively unlimited, safe as BigInt
+    maxExportRows: BigInt('999999999999'),
     hotRetentionDays: 180,
-    archiveRetentionDays: 2555, // ~7 years
-    coldArchiveAfterDays: 365, // Configurable via planOverrides
+    archiveRetentionDays: 2555,
+    coldArchiveAfterDays: 365,
     allowCustomCategories: true,
+    monthlyEventLimit: Number.MAX_SAFE_INTEGER,
+    monthlyExportLimit: Number.MAX_SAFE_INTEGER,
   },
 };
 

@@ -51,12 +51,16 @@ const ConfigSchema = z.object({
   // Rate limits
   rateLimitApiKeyPerMin: z.coerce.number().default(1200),
   rateLimitIpPerMin: z.coerce.number().default(600),
+  rateLimitEventsPerMin: z.coerce.number().default(1000),
 
   // API Key secret for hashing
   apiKeySecret: z.string().min(1),
 
   // Dashboard service token (optional - dashboard routes disabled if not set)
   dashboardServiceToken: z.string().optional(),
+
+  // Dashboard URL for usage callback (API calls Dashboard to get/increment usage)
+  dashboardUsageUrl: z.string().url().optional(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -91,8 +95,10 @@ export function loadConfig(): Config {
     coldArchiveAfterDays: process.env.COLD_ARCHIVE_AFTER_DAYS,
     rateLimitApiKeyPerMin: process.env.RATE_LIMIT_API_KEY_PER_MIN,
     rateLimitIpPerMin: process.env.RATE_LIMIT_IP_PER_MIN,
+    rateLimitEventsPerMin: process.env.RATE_LIMIT_EVENTS_PER_MIN,
     apiKeySecret: process.env.API_KEY_SECRET,
     dashboardServiceToken: process.env.DASHBOARD_SERVICE_TOKEN,
+    dashboardUsageUrl: process.env.HYRELOG_DASHBOARD_URL || process.env.DASHBOARD_USAGE_URL,
   };
 
   const result = ConfigSchema.safeParse(raw);
