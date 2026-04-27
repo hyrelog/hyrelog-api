@@ -1,25 +1,16 @@
 # Production deploy: ECR push + ECS rolling update (hyrelog-api + hyrelog-worker)
 #
-# Set up (choose ONE auth method):
-#
-# A) GitHub OIDC (recommended) — add IAM role with trust to token.actions.githubusercontent.com
-#    and set AWS_DEPLOY_ROLE_ARN secret to that role. Leave AWS_ACCESS_KEY_ID unset.
-# B) Long-lived keys — set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY + AWS_REGION
-#
-# Required repository secrets (adjust names to match your org):
+# This workflow uses OIDC role assumption only.
+# Required repository secrets:
+#   AWS_DEPLOY_ROLE_ARN
 #   AWS_REGION
-#   ECR_API_REPOSITORY  e.g. 123.dkr.ecr.us-east-1.amazonaws.com/hyrelog-api
+#   ECR_API_REPOSITORY
 #   ECR_WORKER_REPOSITORY
 #   ECS_CLUSTER
 #   ECS_SERVICE_API
 #   ECS_SERVICE_WORKER
 #
-# Optional: AWS_DEPLOY_ROLE_ARN  (if using OIDC; passed to configure-aws-credentials)
-#
-# Migrations: NOT run in this template by default (DB is usually private). Run via
-#   scripts/deployment/run-api-regional-migrations.sh from a secure environment or
-#   an ECS one-off task. See docs/deployment/database-migrations.md
-#
+# Migrations are intentionally not run here; run from a private network path.
 name: deploy-production
 
 on:
@@ -45,22 +36,21 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Configure AWS credentials (OIDC)
-        if: ${{ secrets.AWS_DEPLOY_ROLE_ARN != '' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Configure AWS credentials (access keys)
-        if: ${{ secrets.AWS_DEPLOY_ROLE_ARN == '' }}
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Validate required deploy secrets
+        run: |
+          set -euo pipefail
+          test -n "${{ secrets.ECR_API_REPOSITORY }}"
+          test -n "${{ secrets.ECR_WORKER_REPOSITORY }}"
+          test -n "${{ secrets.ECS_CLUSTER }}"
+          test -n "${{ secrets.ECS_SERVICE_API }}"
+          test -n "${{ secrets.ECS_SERVICE_WORKER }}"
 
       - name: Login to Amazon ECR
-        id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Set up Docker Buildx
