@@ -1,0 +1,126 @@
+# Production deploy: ECR push + ECS rolling update (hyrelog-api + hyrelog-worker)
+#
+# Set up (choose ONE auth method):
+#
+# A) GitHub OIDC (recommended) — add IAM role with trust to token.actions.githubusercontent.com
+#    and set AWS_DEPLOY_ROLE_ARN secret to that role. Leave AWS_ACCESS_KEY_ID unset.
+# B) Long-lived keys — set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY + AWS_REGION
+#
+# Required repository secrets (adjust names to match your org):
+#   AWS_REGION
+#   ECR_API_REPOSITORY  e.g. 123.dkr.ecr.us-east-1.amazonaws.com/hyrelog-api
+#   ECR_WORKER_REPOSITORY
+#   ECS_CLUSTER
+#   ECS_SERVICE_API
+#   ECS_SERVICE_WORKER
+#
+# Optional: AWS_DEPLOY_ROLE_ARN  (if using OIDC; passed to configure-aws-credentials)
+#
+# Migrations: NOT run in this template by default (DB is usually private). Run via
+#   scripts/deployment/run-api-regional-migrations.sh from a secure environment or
+#   an ECS one-off task. See docs/deployment/database-migrations.md
+#
+name: deploy-production
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-production-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        if: ${{ secrets.AWS_DEPLOY_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Configure AWS credentials (access keys)
+        if: ${{ secrets.AWS_DEPLOY_ROLE_ARN == '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push API image
+        run: |
+          set -euo pipefail
+          docker build -f services/api/Dockerfile -t "$ECR_API:$IMAGE_TAG" -t "$ECR_API:latest" .
+          docker push "$ECR_API:$IMAGE_TAG"
+          docker push "$ECR_API:latest"
+        env:
+          ECR_API: ${{ secrets.ECR_API_REPOSITORY }}
+
+      - name: Build and push Worker image
+        run: |
+          set -euo pipefail
+          docker build -f services/worker/Dockerfile -t "$ECR_WORKER:$IMAGE_TAG" -t "$ECR_WORKER:latest" .
+          docker push "$ECR_WORKER:$IMAGE_TAG"
+          docker push "$ECR_WORKER:latest"
+        env:
+          ECR_WORKER: ${{ secrets.ECR_WORKER_REPOSITORY }}
+
+      - name: Deploy API service (new image)
+        run: |
+          set -euo pipefail
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_API" --force-new-deployment
+        env:
+          ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
+          ECS_SERVICE_API: ${{ secrets.ECS_SERVICE_API }}
+
+      - name: Deploy Worker service (new image)
+        run: |
+          set -euo pipefail
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_WORKER" --force-new-deployment
+        env:
+          ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
+          ECS_SERVICE_WORKER: ${{ secrets.ECS_SERVICE_WORKER }}
+
+      - name: Wait for API service stability
+        run: |
+          set -euo pipefail
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_API"
+        env:
+          ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
+          ECS_SERVICE_API: ${{ secrets.ECS_SERVICE_API }}
+
+      - name: Wait for Worker service stability
+        run: |
+          set -euo pipefail
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_WORKER"
+        env:
+          ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
+          ECS_SERVICE_WORKER: ${{ secrets.ECS_SERVICE_WORKER }}
+
+      - name: On failure — recent ECS events (no secrets)
+        if: failure()
+        run: |
+          aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_API" "$ECS_SERVICE_WORKER" --query 'services[*].events[:5]' --output json || true
+        env:
+          ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
+          ECS_SERVICE_API: ${{ secrets.ECS_SERVICE_API }}
+          ECS_SERVICE_WORKER: ${{ secrets.ECS_SERVICE_WORKER }}

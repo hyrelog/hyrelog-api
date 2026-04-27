@@ -41,19 +41,22 @@ If Stripe is not configured, the Billing page still loads and shows plan and usa
 | 1.4 | Browser | If onboarding is shown, complete it (company/workspace name, region). Submit. | Data saved; redirect to dashboard home. |
 | 1.5 | Browser | In sidebar click **Workspaces**. | At least one workspace (e.g. "Production") is listed. |
 | 1.6 | Browser | Click a workspace. Note the **workspace ID** in the URL (e.g. `/workspaces/[id]`) for later. | Workspace detail page with tabs: Overview, Keys, Projects, Members, Invites. |
+| 1.7 | Browser | Open **Dashboard** (sidebar/home). | Owners/Admin/Billing users see **company-level** dashboard; Members see **workspace-level** dashboard. |
 
 ---
 
-## Part 2: Dashboard home and billing (Browser)
+## Part 2: Dashboard billing (Browser)
 
 | Step | Where | Action | Expected result |
 |------|--------|--------|-----------------|
-| 2.1 | Browser | Go to **Home** (sidebar). | Home loads with company overview and a billing/subscription card. |
-| 2.2 | Browser | On the billing card, confirm **plan name** (e.g. "Free") and **usage** (events, exports, webhooks). | Plan label and usage numbers (or zeros) visible. |
-| 2.3 | Browser | Click **Manage subscription**. | Navigate to **Billing > Subscription** page. |
+| 2.1 | Browser | In sidebar open **Billing > Subscription**. | Subscription page loads without error. |
+| 2.2 | Browser | On the Subscription page, confirm **plan name** (e.g. "Free") and **usage** (events, exports, webhooks). | Plan label and usage numbers (or zeros) visible. |
+| 2.3 | Browser | Click **Manage subscription** (if shown). | Subscription flow opens as expected. |
 | 2.4 | Browser | On Billing page confirm: current plan, status, next billing date (if any), usage this period. | All fields render without error. |
 | 2.5 | Browser | (Optional, if Stripe configured) Click **Upgrade** on a paid plan. Complete Checkout with card `4242 4242 4242 4242`. | Redirect to Stripe; after payment, return to success URL; Billing page shows updated plan. |
 | 2.6 | Browser | Click **Manage billing**. | Stripe Customer Portal opens; you can update payment or cancel. Return to Dashboard when done. |
+| 2.7 | Browser | Go to **Dashboard** (sidebar/home). | A minimal **Billing snapshot** card is visible with plan and high-level usage (events, exports, webhooks). |
+| 2.8 | Browser | In the Billing snapshot card, click **Manage subscription**. | Navigates to **Billing > Subscription** page. |
 
 ---
 
@@ -231,7 +234,7 @@ If Stripe is not configured, the Billing page still loads and shows plan and usa
 ## Sign-off checklist
 
 - [ ] Part 1: Account and onboarding (sign up, workspace visible, workspace ID noted).
-- [ ] Part 2: Dashboard home and billing (plan, usage, Upgrade, Manage billing).
+- [ ] Part 2: Dashboard billing (Subscription page: plan, usage, Upgrade, Manage billing).
 - [ ] Part 3: API key created in UI; health 200; key status 200; ingest 201 and 200 idempotent.
 - [ ] Part 4: GET events 200; Events explorer filters, pagination, detail drawer, Copy JSON.
 - [ ] Part 5: POST export 201; GET export status 200; GET download 200; Exports page shows job.

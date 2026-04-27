@@ -587,7 +587,7 @@ const webhooksRoutesImpl: FastifyPluginAsync = async (fastify) => {
         200: {
           type: 'object',
           properties: {
-            data: { type: 'array', items: { type: 'object' } },
+            data: { type: 'array', items: { type: 'object', additionalProperties: true } },
             nextCursor: { type: ['string', 'null'] },
           },
           required: ['data', 'nextCursor'],

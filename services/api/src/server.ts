@@ -3,6 +3,7 @@ import { loadConfig } from './lib/config.js';
 import { getLogger } from './lib/logger.js';
 import { getTraceId } from './lib/trace.js';
 import { errorHandlerPlugin } from './plugins/errorHandler.js';
+import { requestLogPlugin } from './plugins/requestLog.js';
 import { internalAuthPlugin } from './plugins/internalAuth.js';
 import { rateLimitPlugin } from './plugins/rateLimit.js';
 import { setupAuthHook } from './plugins/auth.js';
@@ -30,15 +31,13 @@ async function buildServer() {
     return payload;
   });
 
-  // Register plugins
+  // Register plugins – request log first so every request is visible in terminal
+  await server.register(requestLogPlugin);
   await server.register(errorHandlerPlugin);
   await server.register(internalAuthPlugin);
   
   // Setup auth hook directly on server (before routes)
   setupAuthHook(server);
-  
-  // Register dashboard auth plugin (for /dashboard routes)
-  await server.register(dashboardAuthPlugin);
   
   // Note: rateLimitPlugin should run AFTER auth so it can access request.apiKey
   await server.register(rateLimitPlugin);
@@ -51,7 +50,16 @@ async function buildServer() {
   await server.register(metricsRoutes, { prefix: '/internal' });
   // v1 routes registered without prefix so @fastify/swagger discovers them; paths use /v1/... inside route files
   await server.register(v1Routes);
-  await server.register(dashboardRoutes, { prefix: '/dashboard' });
+  // Dashboard: apply auth hook directly on the prefixed instance, then register routes
+  // beneath that same instance. Registering the auth plugin as a sibling child plugin
+  // would encapsulate the hook away from the dashboard routes.
+  await server.register(
+    async (dashboardApp) => {
+      await dashboardAuthPlugin(dashboardApp);
+      await dashboardApp.register(dashboardRoutes);
+    },
+    { prefix: '/dashboard' }
+  );
 
   // Root route
   server.get('/', async (request, reply) => {

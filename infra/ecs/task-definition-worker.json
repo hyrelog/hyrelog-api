@@ -1,0 +1,46 @@
+{
+  "family": "hyrelog-worker",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/hyrelogWorkerTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "hyrelog-worker",
+      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/hyrelog-worker:IMAGE_TAG",
+      "essential": true,
+      "command": ["node", "dist/index.js"],
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "LOG_LEVEL", "value": "info" },
+        { "name": "DEFAULT_DATA_REGION", "value": "US" },
+        { "name": "S3_REGION", "value": "us-east-1" },
+        { "name": "S3_FORCE_PATH_STYLE", "value": "false" },
+        { "name": "WORKER_POLL_INTERVAL_SECONDS", "value": "5" },
+        { "name": "S3_BUCKET_US", "value": "REPLACE_HYRELOG_ARCHIVE_US" },
+        { "name": "S3_BUCKET_EU", "value": "REPLACE_HYRELOG_ARCHIVE_EU" },
+        { "name": "S3_BUCKET_UK", "value": "REPLACE_HYRELOG_ARCHIVE_UK" },
+        { "name": "S3_BUCKET_AU", "value": "REPLACE_HYRELOG_ARCHIVE_AU" }
+      ],
+      "secrets": [
+        { "name": "WEBHOOK_SECRET_ENCRYPTION_KEY", "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:hyrelog/WEBHOOK_SECRET_ENCRYPTION_KEY" },
+        { "name": "DATABASE_URL_US", "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:hyrelog/DATABASE_URL_US" },
+        { "name": "DATABASE_URL_EU", "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:hyrelog/DATABASE_URL_EU" },
+        { "name": "DATABASE_URL_UK", "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:hyrelog/DATABASE_URL_UK" },
+        { "name": "DATABASE_URL_AU", "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:hyrelog/DATABASE_URL_AU" },
+        { "name": "S3_ACCESS_KEY_ID", "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:hyrelog/S3_ACCESS_KEY_ID" },
+        { "name": "S3_SECRET_ACCESS_KEY", "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:hyrelog/S3_SECRET_ACCESS_KEY" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/hyrelog-worker",
+          "awslogs-region": "REGION",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}

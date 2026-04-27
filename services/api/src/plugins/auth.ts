@@ -4,6 +4,7 @@ import { hashApiKey, parseApiKeyFromHeader, parseKeyPrefix, type ApiKeyInfo } fr
 import { getApiKeyCache } from '../lib/apiKeyCache.js';
 import { getLogger } from '../lib/logger.js';
 import { getTraceId } from '../lib/trace.js';
+import { loadConfig } from '../lib/config.js';
 
 import type { PrismaClientType } from '../lib/regionRouter.js';
 
@@ -94,9 +95,27 @@ export const authPlugin: FastifyPluginAsync = async (fastify) => {
 
           const apiKey = await prisma.apiKey.findFirst({
             where: { hashedKey },
-            include: {
-              company: true,
-              workspace: true,
+            select: {
+              id: true,
+              scope: true,
+              status: true,
+              revokedAt: true,
+              expiresAt: true,
+              ipAllowlist: true,
+              companyId: true,
+              workspaceId: true,
+              company: {
+                select: {
+                  id: true,
+                  dataRegion: true,
+                },
+              },
+              workspace: {
+                select: {
+                  id: true,
+                  status: true,
+                },
+              },
             },
           });
 
@@ -269,6 +288,40 @@ export function setupAuthHook(server: any): void {
         return;
       }
 
+      // Skip auth for dashboard service routes (they use x-dashboard-token via dashboardAuthPlugin)
+      if (request.url.startsWith('/dashboard')) {
+        // Unconditional stderr write so we always see this (bypasses pino/buffering)
+        process.stderr.write(
+          `[DASHBOARD-AUTH] Hook entered for ${request.url}, checking token\n`
+        );
+        const config = loadConfig();
+        const expected = (config.dashboardServiceToken ?? '').trim();
+        const rawToken = request.headers['x-dashboard-token'] as string | undefined;
+        const token = typeof rawToken === 'string' ? rawToken.trim() : '';
+        const fail = !expected || !token || token !== expected;
+        const reason = !token ? 'header_missing' : token !== expected ? 'token_mismatch' : 'ok';
+        process.stderr.write(
+          `[DASHBOARD-AUTH] tokenLen=${token.length} expectedLen=${expected.length} reason=${reason} fail=${fail}\n`
+        );
+        if (fail) {
+          logger.info(
+            {
+              url: request.url,
+              reason: !token ? 'header_missing' : 'token_mismatch',
+              hasHeader: !!request.headers['x-dashboard-token'],
+              tokenLength: token.length,
+              expectedLength: expected.length,
+            },
+            'Dashboard auth: 401 - service token missing or invalid (check DASHBOARD_SERVICE_TOKEN matches dashboard .env)'
+          );
+          return reply.code(401).send({
+            error: 'Missing or invalid dashboard service token',
+            code: 'UNAUTHORIZED',
+          });
+        }
+        return;
+      }
+
       logger.info({ url: request.url, hasAuth: !!request.headers.authorization }, 'Auth hook: Processing request');
 
       // Parse API key from Authorization header
@@ -304,9 +357,27 @@ export function setupAuthHook(server: any): void {
 
           const apiKey = await prisma.apiKey.findFirst({
             where: { hashedKey },
-            include: {
-              company: true,
-              workspace: true,
+            select: {
+              id: true,
+              scope: true,
+              status: true,
+              revokedAt: true,
+              expiresAt: true,
+              ipAllowlist: true,
+              companyId: true,
+              workspaceId: true,
+              company: {
+                select: {
+                  id: true,
+                  dataRegion: true,
+                },
+              },
+              workspace: {
+                select: {
+                  id: true,
+                  status: true,
+                },
+              },
             },
           });
 

@@ -41,6 +41,15 @@ const RevokeKeySchema = z.object({
   revokedAt: z.string().datetime(),
 });
 
+const CreateCompanyApiKeySchema = z.object({
+  name: z.string().min(1).max(100),
+  expiresAt: z.string().datetime().optional(),
+});
+
+const UpdateCompanyApiKeyAllowlistSchema = z.object({
+  ipAllowlist: z.array(z.string().trim().min(1).max(128)).max(100).default([]),
+});
+
 async function findCompanyByDashboardId(dashboardCompanyId: string): Promise<{ region: string; apiCompanyId: string; prisma: import('../../lib/regionRouter.js').PrismaClientType } | null> {
   const regions = regionRouter.getAllRegions();
   for (const region of regions) {
@@ -55,6 +64,263 @@ async function findCompanyByDashboardId(dashboardCompanyId: string): Promise<{ r
 }
 
 export const apiKeysRoutes: FastifyPluginAsync = async (fastify) => {
+  /**
+   * GET /dashboard/api-keys/company
+   * List company-scoped API keys for the authenticated company.
+   */
+  fastify.get('/api-keys/company', async (request, reply) => {
+    if (!request.dashboardAuth || !request.prisma) {
+      return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+    }
+
+    const prisma = request.prisma;
+    const companyId = request.dashboardAuth.companyId;
+    if (!companyId) {
+      return reply.code(400).send({ error: 'Missing company context', code: 'VALIDATION_ERROR' });
+    }
+
+    const keys = await prisma.apiKey.findMany({
+      where: { companyId, scope: 'COMPANY' },
+      orderBy: [{ createdAt: 'desc' }],
+      select: {
+        id: true,
+        prefix: true,
+        status: true,
+        labels: true,
+        ipAllowlist: true,
+        expiresAt: true,
+        lastUsedAt: true,
+        revokedAt: true,
+        createdAt: true,
+      },
+    });
+
+    return reply.send({
+      items: keys.map((k) => ({
+        id: k.id,
+        prefix: k.prefix,
+        name: k.labels?.[0] ?? 'Company API key',
+        labels: k.labels ?? [],
+        status: k.status,
+        ipAllowlist: k.ipAllowlist ?? [],
+        expiresAt: k.expiresAt?.toISOString() ?? null,
+        lastUsedAt: k.lastUsedAt?.toISOString() ?? null,
+        revokedAt: k.revokedAt?.toISOString() ?? null,
+        createdAt: k.createdAt.toISOString(),
+        updatedAt: k.createdAt.toISOString(),
+      })),
+    });
+  });
+
+  /**
+   * POST /dashboard/api-keys/company
+   * Create a new company-scoped API key and return plaintext once.
+   */
+  fastify.post('/api-keys/company', async (request, reply) => {
+    if (!request.dashboardAuth || !request.prisma) {
+      return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+    }
+
+    const bodyResult = CreateCompanyApiKeySchema.safeParse(request.body);
+    if (!bodyResult.success) {
+      return reply.code(400).send({
+        error: 'Validation error',
+        code: 'VALIDATION_ERROR',
+        details: bodyResult.error.errors,
+      });
+    }
+
+    const { name, expiresAt } = bodyResult.data;
+    const { userId, userEmail, userRole, companyId } = request.dashboardAuth;
+    const prisma = request.prisma;
+    if (!companyId) {
+      return reply.code(400).send({ error: 'Missing company context', code: 'VALIDATION_ERROR' });
+    }
+
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: { dataRegion: true },
+    });
+    if (!company) {
+      return reply.code(404).send({ error: 'Company not found', code: 'NOT_FOUND' });
+    }
+
+    const plaintextKey = generateApiKey('COMPANY', company.dataRegion as 'US' | 'EU' | 'UK' | 'AU');
+    const hashedKey = hashApiKey(plaintextKey);
+
+    const apiKey = await prisma.apiKey.create({
+      data: {
+        prefix: plaintextKey.substring(0, 20),
+        hashedKey,
+        scope: 'COMPANY',
+        status: 'ACTIVE',
+        companyId,
+        workspaceId: null,
+        expiresAt: expiresAt ? new Date(expiresAt) : null,
+        ipAllowlist: [],
+        labels: [name],
+      },
+      select: {
+        id: true,
+        prefix: true,
+        scope: true,
+        status: true,
+        expiresAt: true,
+        createdAt: true,
+      },
+    });
+
+    await logDashboardAction(prisma, request, {
+      action: 'API_KEY_CREATED',
+      actorUserId: userId,
+      actorEmail: userEmail,
+      actorRole: userRole,
+      targetCompanyId: companyId,
+      metadata: { apiKeyId: apiKey.id, scope: apiKey.scope },
+    });
+
+    return reply.code(201).send({
+      id: apiKey.id,
+      apiKey: plaintextKey,
+      prefix: apiKey.prefix,
+      scope: apiKey.scope,
+      status: apiKey.status,
+      expiresAt: apiKey.expiresAt?.toISOString() ?? null,
+      createdAt: apiKey.createdAt.toISOString(),
+    });
+  });
+
+  /**
+   * POST /dashboard/api-keys/company/:apiKeyId/revoke
+   * Revoke a company-scoped API key by API key id.
+   */
+  fastify.post<{ Params: { apiKeyId: string } }>('/api-keys/company/:apiKeyId/revoke', async (request, reply) => {
+    if (!request.dashboardAuth || !request.prisma) {
+      return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+    }
+
+    const { apiKeyId } = request.params;
+    const prisma = request.prisma;
+    const companyId = request.dashboardAuth.companyId;
+    if (!companyId) {
+      return reply.code(400).send({ error: 'Missing company context', code: 'VALIDATION_ERROR' });
+    }
+
+    const key = await prisma.apiKey.findFirst({
+      where: { id: apiKeyId, companyId, scope: 'COMPANY' },
+      select: { id: true, revokedAt: true, companyId: true },
+    });
+    if (!key) {
+      return reply.code(404).send({ error: 'API key not found', code: 'NOT_FOUND' });
+    }
+    if (key.revokedAt) {
+      return reply.send({ ok: true });
+    }
+
+    const revokedAt = new Date();
+    await prisma.apiKey.update({
+      where: { id: key.id },
+      data: { revokedAt, status: 'REVOKED' },
+    });
+    getApiKeyCache().deleteByKeyId(key.id);
+
+    await logDashboardAction(prisma, request, {
+      action: 'API_KEY_REVOKED',
+      actorUserId: request.dashboardAuth.userId,
+      actorEmail: request.dashboardAuth.userEmail,
+      actorRole: request.dashboardAuth.userRole,
+      targetCompanyId: key.companyId ?? undefined,
+      metadata: { apiKeyId: key.id },
+    });
+
+    return reply.send({ ok: true });
+  });
+
+  /**
+   * PATCH /dashboard/api-keys/company/:apiKeyId/allowlist
+   * Update IP allowlist for a company-scoped API key.
+   */
+  fastify.patch<{ Params: { apiKeyId: string } }>('/api-keys/company/:apiKeyId/allowlist', async (request, reply) => {
+    if (!request.dashboardAuth || !request.prisma) {
+      return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+    }
+
+    const bodyResult = UpdateCompanyApiKeyAllowlistSchema.safeParse(request.body);
+    if (!bodyResult.success) {
+      return reply.code(400).send({
+        error: 'Validation error',
+        code: 'VALIDATION_ERROR',
+        details: bodyResult.error.errors,
+      });
+    }
+
+    const { apiKeyId } = request.params;
+    const prisma = request.prisma;
+    const companyId = request.dashboardAuth.companyId;
+    if (!companyId) {
+      return reply.code(400).send({ error: 'Missing company context', code: 'VALIDATION_ERROR' });
+    }
+
+    const key = await prisma.apiKey.findFirst({
+      where: { id: apiKeyId, companyId, scope: 'COMPANY' },
+      select: {
+        id: true,
+        companyId: true,
+        status: true,
+      },
+    });
+    if (!key) {
+      return reply.code(404).send({ error: 'API key not found', code: 'NOT_FOUND' });
+    }
+    if (key.status !== 'ACTIVE') {
+      return reply.code(400).send({ error: 'Only active keys can be updated', code: 'VALIDATION_ERROR' });
+    }
+
+    const ipAllowlist = Array.from(
+      new Set(bodyResult.data.ipAllowlist.map((ip) => ip.trim()).filter((ip) => ip.length > 0))
+    );
+
+    const updated = await prisma.apiKey.update({
+      where: { id: key.id },
+      data: { ipAllowlist },
+      select: {
+        id: true,
+        prefix: true,
+        status: true,
+        labels: true,
+        ipAllowlist: true,
+        expiresAt: true,
+        lastUsedAt: true,
+        revokedAt: true,
+        createdAt: true,
+      },
+    });
+    getApiKeyCache().deleteByKeyId(key.id);
+
+    await logDashboardAction(prisma, request, {
+      action: 'API_KEY_ALLOWLIST_UPDATED',
+      actorUserId: request.dashboardAuth.userId,
+      actorEmail: request.dashboardAuth.userEmail,
+      actorRole: request.dashboardAuth.userRole,
+      targetCompanyId: key.companyId ?? undefined,
+      metadata: { apiKeyId: key.id, allowlistCount: ipAllowlist.length },
+    });
+
+    return reply.send({
+      id: updated.id,
+      prefix: updated.prefix,
+      name: updated.labels?.[0] ?? 'Company API key',
+      labels: updated.labels ?? [],
+      status: updated.status,
+      ipAllowlist: updated.ipAllowlist ?? [],
+      expiresAt: updated.expiresAt?.toISOString() ?? null,
+      lastUsedAt: updated.lastUsedAt?.toISOString() ?? null,
+      revokedAt: updated.revokedAt?.toISOString() ?? null,
+      createdAt: updated.createdAt.toISOString(),
+      updatedAt: updated.createdAt.toISOString(),
+    });
+  });
+
   /**
    * POST /dashboard/api-keys
    * Contract: if body has dashboardKeyId + prefix + hash → sync (upsert). Else legacy create (requires x-company-id).

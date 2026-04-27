@@ -20,8 +20,8 @@
     "prisma:generate": "npm run prisma:generate --workspace=services/api",
     "prisma:migrate": "npm run prisma:migrate --workspace=services/api",
     "prisma:migrate:all": "powershell -ExecutionPolicy Bypass -File ./scripts/migrate-all-regions.ps1",
-        "prisma:studio": "npm run prisma:studio --workspace=services/api",
-        "prisma:studio:us": "powershell -Command \"$env:DATABASE_URL='postgresql://hyrelog:hyrelog@localhost:54321/hyrelog_us'; npm run prisma:studio --workspace=services/api\"",
+    "prisma:studio": "npm run prisma:studio --workspace=services/api",
+    "prisma:studio:us": "powershell -Command \"$env:DATABASE_URL='postgresql://hyrelog:hyrelog@localhost:54321/hyrelog_us'; npm run prisma:studio --workspace=services/api\"",
     "seed": "npm run prisma:seed --workspace=services/api",
     "seed:reset": "npm run prisma:seed:reset --workspace=services/api",
     "seed:reset:all": "powershell -ExecutionPolicy Bypass -File ./scripts/reset-all-regions.ps1",
@@ -34,13 +34,12 @@
     "unmark-cold-archived": "tsx scripts/unmark-cold-archived.js"
   },
   "devDependencies": {
-    "@prisma/client": "^7.4.2",
-    "prettier": "^3.8.1",
-    "prisma": "^7.4.2",
-    "typescript": "^5.9.3"
+    "@prisma/client": "^7.7.0",
+    "prettier": "^3.8.3",
+    "prisma": "^7.7.0",
+    "typescript": "^6.0.3"
   },
   "engines": {
     "node": ">=20.0.0"
   }
 }
-

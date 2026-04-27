@@ -403,29 +403,27 @@ const exportsRoutesImpl: FastifyPluginAsync = async (fastify) => {
         },
       });
 
-      // Track if job was canceled due to client disconnect
+      // Guard terminal state transitions against race conditions between stream events
+      // and client/socket close events.
       let canceledByClient = false;
-
-      // Handle client disconnect
-      request.raw.on('close', async () => {
-        if (!request.raw.destroyed && !canceledByClient) {
-          canceledByClient = true;
-          try {
-            await prisma.exportJob.update({
-              where: { id: exportJob.id },
-              data: {
-                status: 'CANCELED',
-                finishedAt: new Date(),
-                errorCode: 'CLIENT_DISCONNECTED',
-                errorMessage: 'Client disconnected during export stream',
-              },
-            });
-            logger.info({ jobId: exportJob.id }, 'Export job canceled due to client disconnect');
-          } catch (updateError: any) {
-            logger.error({ err: updateError, jobId: exportJob.id }, 'Failed to mark export job as canceled');
-          }
-        }
-      });
+      let jobFinalized = false;
+      const finalizeJob = async (data: {
+        status: 'SUCCEEDED' | 'FAILED' | 'CANCELED';
+        errorCode?: string;
+        errorMessage?: string;
+      }) => {
+        if (jobFinalized) return;
+        jobFinalized = true;
+        await prisma.exportJob.update({
+          where: { id: exportJob.id },
+          data: {
+            status: data.status,
+            finishedAt: new Date(),
+            ...(data.errorCode && { errorCode: data.errorCode }),
+            ...(data.errorMessage && { errorMessage: data.errorMessage }),
+          },
+        });
+      };
 
       try {
         // Stream data based on source
@@ -453,13 +451,7 @@ const exportsRoutesImpl: FastifyPluginAsync = async (fastify) => {
         stream.on('end', async () => {
           if (!canceledByClient) {
             try {
-              await prisma.exportJob.update({
-                where: { id: exportJob.id },
-                data: {
-                  status: 'SUCCEEDED',
-                  finishedAt: new Date(),
-                },
-              });
+              await finalizeJob({ status: 'SUCCEEDED' });
             } catch (updateError: any) {
               logger.error({ err: updateError, jobId: exportJob.id }, 'Failed to mark export job as succeeded');
             }
@@ -469,14 +461,10 @@ const exportsRoutesImpl: FastifyPluginAsync = async (fastify) => {
         stream.on('error', async (streamError: any) => {
           if (!canceledByClient) {
             try {
-              await prisma.exportJob.update({
-                where: { id: exportJob.id },
-                data: {
-                  status: 'FAILED',
-                  finishedAt: new Date(),
-                  errorCode: 'STREAM_ERROR',
-                  errorMessage: streamError.message,
-                },
+              await finalizeJob({
+                status: 'FAILED',
+                errorCode: 'STREAM_ERROR',
+                errorMessage: streamError.message,
               });
             } catch (updateError: any) {
               logger.error({ err: updateError, jobId: exportJob.id }, 'Failed to mark export job as failed');
@@ -484,24 +472,55 @@ const exportsRoutesImpl: FastifyPluginAsync = async (fastify) => {
           }
         });
 
-        // Use reply.send() which Fastify handles properly for streams
-        // The stream will be automatically piped to the response
-        reply.send(stream);
-        
-        // Return undefined to indicate we've handled the response
-        return;
+        // Fastify can report "stream closed prematurely" without an `end` event.
+        // Ensure we still leave RUNNING by finalizing on stream close when needed.
+        stream.on('close', async () => {
+          if (jobFinalized) return;
+          try {
+            if (reply.raw.writableFinished) {
+              await finalizeJob({ status: 'SUCCEEDED' });
+            } else {
+              canceledByClient = true;
+              await finalizeJob({
+                status: 'CANCELED',
+                errorCode: 'CLIENT_DISCONNECTED',
+                errorMessage: 'Export stream closed before completion',
+              });
+            }
+          } catch (updateError: any) {
+            logger.error({ err: updateError, jobId: exportJob.id }, 'Failed to finalize export job on stream close');
+          }
+        });
+
+        // If the response closes before the export reaches a terminal state, the client
+        // disconnected and we should not leave the job in RUNNING.
+        reply.raw.on('close', async () => {
+          if (jobFinalized) return;
+          if (reply.raw.writableFinished) return;
+          canceledByClient = true;
+          try {
+            await finalizeJob({
+              status: 'CANCELED',
+              errorCode: 'CLIENT_DISCONNECTED',
+              errorMessage: 'Client disconnected before export stream completed',
+            });
+            logger.info({ jobId: exportJob.id }, 'Export job canceled due to client disconnect');
+          } catch (updateError: any) {
+            logger.error({ err: updateError, jobId: exportJob.id }, 'Failed to mark export job as canceled');
+          }
+        });
+
+        // Return the stream response directly so Fastify does not treat this
+        // async handler as an empty payload response.
+        return reply.send(stream);
       } catch (error: any) {
         // Handle RESTORE_REQUIRED error
         if (error.code === 'RESTORE_REQUIRED') {
           if (!canceledByClient) {
-            await prisma.exportJob.update({
-              where: { id: exportJob.id },
-              data: {
-                status: 'FAILED',
-                finishedAt: new Date(),
-                errorCode: 'RESTORE_REQUIRED',
-                errorMessage: error.message,
-              },
+            await finalizeJob({
+              status: 'FAILED',
+              errorCode: 'RESTORE_REQUIRED',
+              errorMessage: error.message,
             });
           }
 
@@ -514,14 +533,10 @@ const exportsRoutesImpl: FastifyPluginAsync = async (fastify) => {
 
         // Mark job as FAILED for other errors
         if (!canceledByClient) {
-          await prisma.exportJob.update({
-            where: { id: exportJob.id },
-            data: {
-              status: 'FAILED',
-              finishedAt: new Date(),
-              errorCode: 'STREAM_ERROR',
-              errorMessage: error.message,
-            },
+          await finalizeJob({
+            status: 'FAILED',
+            errorCode: 'STREAM_ERROR',
+            errorMessage: error.message,
           });
         }
 
@@ -585,11 +600,11 @@ async function streamHotData(
   let rowsExported = typeof exportJob.rowsExported === 'bigint' ? exportJob.rowsExported : BigInt(exportJob.rowsExported || 0);
   let headerSent = false;
 
-  // Create readable stream
-  const stream = new Readable({
-    objectMode: false, // Always use string mode for consistency
-    async read() {
-      try {
+  const stream = new PassThrough();
+
+  void (async () => {
+    try {
+      while (rowsExported < rowLimit) {
         // Fetch events in batches (cursor pagination)
         const events = await prisma.auditEvent.findMany({
           where: {
@@ -602,18 +617,13 @@ async function streamHotData(
 
         if (events.length === 0) {
           logger.info({ jobId: exportJob.id, lastCursor }, 'HOT export: No more events found, ending stream');
-          this.push(null); // End stream
-          return;
+          break;
         }
 
         logger.debug({ jobId: exportJob.id, eventCount: events.length, lastCursor }, 'HOT export: Fetched batch of events');
 
-        // Process events
-
         for (const event of events) {
-          // Compare BigInt values
           if (rowsExported >= rowLimit) {
-            this.push(null); // End stream
             break;
           }
 
@@ -634,12 +644,11 @@ async function streamHotData(
               geo: event.geo,
               userAgent: event.userAgent,
             });
-            this.push(line + '\n');
+            stream.write(line + '\n');
           } else {
-            // CSV format
             if (!headerSent) {
               // Header row (only once)
-              this.push('id,timestamp,category,action,actorId,actorEmail,actorRole,resourceType,resourceId,metadata,traceId,ipAddress,geo,userAgent\n');
+              stream.write('id,timestamp,category,action,actorId,actorEmail,actorRole,resourceType,resourceId,metadata,traceId,ipAddress,geo,userAgent\n');
               headerSent = true;
             }
             const row = [
@@ -658,7 +667,7 @@ async function streamHotData(
               event.geo || '',
               event.userAgent || '',
             ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',');
-            this.push(row + '\n');
+            stream.write(row + '\n');
           }
 
           rowsExported = rowsExported + BigInt(1);
@@ -672,17 +681,18 @@ async function streamHotData(
             data: { rowsExported: rowsExported },
           });
         }
-      } catch (error: any) {
-        this.destroy(error);
       }
-    },
-  });
 
-  // Start the stream by calling read() once
-  // This ensures Fastify can properly handle the stream
-  process.nextTick(() => {
-    stream.read();
-  });
+      // Persist final count so GET /exports/:id reflects actual rows exported.
+      await prisma.exportJob.update({
+        where: { id: exportJob.id },
+        data: { rowsExported: rowsExported },
+      });
+      stream.end();
+    } catch (error: any) {
+      stream.destroy(error);
+    }
+  })();
 
   return stream;
 }

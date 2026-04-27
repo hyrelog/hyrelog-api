@@ -32,7 +32,7 @@ Ports and env details: [PORTS_AND_ENV.md](./PORTS_AND_ENV.md).
 | 1.1.2 | Enter name, email, password, and **company name** (or leave blank for “Your Name’s Company”). Submit. | Redirect to check-email or dashboard; no error. |
 | 1.1.3 | Complete email verification if required (magic link or code). | You land on dashboard or onboarding. |
 
-**Backend:** Registration creates User (Better Auth), Company, default Workspace “Production”, and Subscription. If API is configured, it **best-effort** provisions company and workspace to the API (see `register.ts` → `provisionCompanyAndStore`, `provisionWorkspaceAndStore`). Sign-up does **not** fail if API is down.
+**Backend:** Registration creates User (Better Auth), Company, default Workspace “Production”, and Subscription. Provisioning to the API is triggered from onboarding completion/skip and from create-workspace flows (best-effort). Sign-up does **not** fail if API is down.
 
 ### 1.2 Verify company and workspace exist (Dashboard)
 
@@ -40,6 +40,7 @@ Ports and env details: [PORTS_AND_ENV.md](./PORTS_AND_ENV.md).
 |------|--------|----------------|
 | 1.2.1 | Open **Workspaces** (sidebar). | You see at least one workspace (e.g. “Production”). |
 | 1.2.2 | Click the workspace to open its detail page. | Workspace detail loads; tabs: Overview / Keys / Projects / Members / Invites (or similar). |
+| 1.2.3 | Open **Dashboard** (sidebar/home). | Owners/Admin/Billing users see **company-level** dashboard; Members see **workspace-level** dashboard. |
 
 **Optional API check (Postman or curl):** If you have the dashboard company ID and API token, you can call the API’s dashboard endpoints to confirm the company/workspace exist in the API (see [TEST_PLAN.md](./TEST_PLAN.md) sections 3–4). For UI-only flow, the next phase (creating a key) will fail if the workspace is not provisioned.
 
@@ -47,7 +48,7 @@ Ports and env details: [PORTS_AND_ENV.md](./PORTS_AND_ENV.md).
 
 ## Phase 2 — Provisioning (if not already done)
 
-If you did **not** have the API running at sign-up, company/workspace may exist only in the Dashboard DB. Creating an **API key** in the Dashboard requires the workspace to be provisioned (company + workspace must have `apiCompanyId` / `apiWorkspaceId`). Provisioning happens automatically at sign-up when the API is up; it also runs when you **create a new workspace** (create workspace action calls `provisionWorkspaceAndStore`).
+If you did **not** have the API running at sign-up, company/workspace may exist only in the Dashboard DB. Creating an **API key** in the Dashboard requires the workspace to be provisioned (company + workspace must have `apiCompanyId` / `apiWorkspaceId`). Provisioning runs on onboarding completion/skip and when you **create a new workspace** (create workspace action calls `provisionWorkspaceAndStore`).
 
 ### 2.1 Ensure API is running and env is correct
 

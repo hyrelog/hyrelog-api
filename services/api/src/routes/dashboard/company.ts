@@ -9,7 +9,15 @@ import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { getLogger } from '../../lib/logger.js';
 import { logDashboardAction } from '../../lib/auditLog.js';
-import { getCompanyPlanConfig } from '../../lib/plans.js';
+import {
+  getCompanyLimit,
+  getCompanyPlanConfig,
+  requireCompanyFeature,
+  requireCompanyLimit,
+  PlanRestrictionError,
+} from '../../lib/plans.js';
+import { generateWebhookSecret, hashWebhookSecret } from '../../lib/webhookSigning.js';
+import { encryptWebhookSecret } from '../../lib/webhookEncryption.js';
 import { getRegionRouter } from '../../lib/regionRouter.js';
 import { exportsRoutes } from '../v1/exports.js';
 import { webhooksRoutes } from '../v1/webhooks.js';
@@ -20,7 +28,9 @@ const regionRouter = getRegionRouter();
 
 const QueryEventsSchema = z.object({
   limit: z.coerce.number().min(1).max(200).default(50),
-  cursor: z.string().optional(),
+  offset: z.coerce.number().min(0).default(0),
+  sort: z.enum(['timestamp', 'category', 'action', 'id']).default('timestamp'),
+  order: z.enum(['asc', 'desc']).default('desc'),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
   category: z.string().optional(),
@@ -28,6 +38,96 @@ const QueryEventsSchema = z.object({
   projectId: z.string().uuid().optional(),
   workspaceId: z.string().uuid().optional(),
 });
+
+const QueryEventFilterOptionsSchema = z.object({
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+  workspaceId: z.string().uuid().optional(),
+});
+
+const QueryWebhookDeliveriesSchema = z.object({
+  limit: z.coerce.number().min(1).max(200).default(20),
+  status: z.enum(['PENDING', 'SENDING', 'SUCCEEDED', 'FAILED', 'RETRY_SCHEDULED']).optional(),
+});
+
+/** Must stay in sync with Prisma `WebhookEventType`. */
+const DASHBOARD_WEBHOOK_EVENT_NAMES = ['AUDIT_EVENT_CREATED'] as const;
+const dashboardWebhookEventNameSet = new Set<string>(DASHBOARD_WEBHOOK_EVENT_NAMES);
+
+const CreateDashboardWebhookSchema = z
+  .object({
+    workspaceId: z.string().uuid(),
+    url: z.string().url(),
+    events: z.array(z.string().min(1)).min(1).default(['AUDIT_EVENT_CREATED']),
+    projectId: z.string().uuid().nullable().optional(),
+  })
+  .superRefine((data, ctx) => {
+    const unknown = [...new Set(data.events.filter((e) => !dashboardWebhookEventNameSet.has(e)))];
+    if (unknown.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['events'],
+        message: `Unknown event type(s): ${unknown.join(', ')}. Allowed: ${DASHBOARD_WEBHOOK_EVENT_NAMES.join(', ')}`,
+      });
+    }
+  });
+
+function validateDashboardWebhookUrl(url: string): { valid: boolean; error?: string } {
+  const urlObj = new URL(url);
+  const isLocalhost = urlObj.hostname === 'localhost' || urlObj.hostname === '127.0.0.1';
+  const isHttps = urlObj.protocol === 'https:';
+  const isHttp = urlObj.protocol === 'http:';
+
+  if (process.env.NODE_ENV === 'production' && !isHttps) {
+    return { valid: false, error: 'Webhook URLs must use HTTPS in production' };
+  }
+  if (isLocalhost && isHttp) return { valid: true };
+  if (!isHttps) {
+    return {
+      valid: false,
+      error: 'Webhook URLs must use HTTPS (http://localhost allowed in development only)',
+    };
+  }
+  return { valid: true };
+}
+
+function buildDashboardEventsWhere(
+  companyId: string,
+  filters: {
+    from?: string;
+    to?: string;
+    category?: string;
+    action?: string;
+    projectId?: string;
+    workspaceId?: string;
+  }
+): Record<string, unknown> {
+  const where: Record<string, unknown> = { companyId };
+  if (filters.category) where.category = filters.category;
+  if (filters.action) where.action = filters.action;
+  if (filters.projectId) where.projectId = filters.projectId;
+  if (filters.workspaceId) where.workspaceId = filters.workspaceId;
+  if (filters.from || filters.to) {
+    (where as { timestamp: { gte?: Date; lte?: Date } }).timestamp = {};
+    if (filters.from) {
+      (where as { timestamp: { gte?: Date; lte?: Date } }).timestamp.gte = new Date(filters.from);
+    }
+    if (filters.to) {
+      (where as { timestamp: { gte?: Date; lte?: Date } }).timestamp.lte = new Date(filters.to);
+    }
+  }
+  return where;
+}
+
+function buildEventListOrderBy(
+  sort: 'timestamp' | 'category' | 'action' | 'id',
+  order: 'asc' | 'desc'
+): Array<Record<string, 'asc' | 'desc'>> {
+  if (sort === 'id') return [{ id: order }];
+  if (sort === 'timestamp') return [{ timestamp: order }, { id: order }];
+  if (sort === 'category') return [{ category: order }, { timestamp: order }, { id: order }];
+  return [{ action: order }, { timestamp: order }, { id: order }];
+}
 
 const ProvisionCompanySchema = z.object({
   dashboardCompanyId: z.string().uuid(),
@@ -53,7 +153,12 @@ export const companyRoutes: FastifyPluginAsync = async (fastify) => {
    */
   fastify.post('/companies', async (request, reply) => {
     if (!request.dashboardAuth) {
-      return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+      return reply.code(401).send({
+        error:
+          'Dashboard auth not set on request. The dashboard auth plugin may not have run (check token and actor headers).',
+        code: 'UNAUTHORIZED',
+        reason: 'dashboard_auth_not_set',
+      });
     }
 
     const bodyResult = ProvisionCompanySchema.safeParse(request.body);
@@ -232,8 +337,60 @@ export const companyRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /**
+   * GET /dashboard/events/filter-options
+   * Distinct category and action values for the company, scoped by optional workspace and date range.
+   * (Does not use category/action filters so the dropdowns can list all values in scope.)
+   */
+  fastify.get('/events/filter-options', async (request, reply) => {
+    if (!request.dashboardAuth || !request.prisma) {
+      return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+    }
+
+    const { companyId } = request.dashboardAuth;
+    if (!companyId) {
+      return reply.code(400).send({ error: 'Missing company ID', code: 'VALIDATION_ERROR' });
+    }
+
+    const prisma = request.prisma;
+    const q = QueryEventFilterOptionsSchema.safeParse(request.query);
+    if (!q.success) {
+      return reply.code(400).send({
+        error: 'Validation error',
+        code: 'VALIDATION_ERROR',
+        details: q.error.errors,
+      });
+    }
+
+    const { from, to, workspaceId } = q.data;
+    const where = buildDashboardEventsWhere(companyId, { from, to, workspaceId });
+
+    try {
+      const [catGroups, actGroups] = await Promise.all([
+        prisma.auditEvent.groupBy({
+          by: ['category'],
+          where: where as any,
+        }),
+        prisma.auditEvent.groupBy({
+          by: ['action'],
+          where: where as any,
+        }),
+      ]);
+      const categories = catGroups
+        .map((r) => r.category)
+        .sort((a, b) => a.localeCompare(b));
+      const actions = actGroups
+        .map((r) => r.action)
+        .sort((a, b) => a.localeCompare(b));
+      return reply.send({ categories, actions });
+    } catch (error: any) {
+      logger.error({ err: error, companyId }, 'Dashboard: Failed to load event filter options');
+      return reply.code(500).send({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+    }
+  });
+
+  /**
    * GET /dashboard/events
-   * Query events (wraps existing /v1/events with company scope enforcement)
+   * Company-scoped events: offset/limit pagination, total count, sort.
    */
   fastify.get('/events', async (request, reply) => {
     if (!request.dashboardAuth || !request.prisma) {
@@ -247,7 +404,6 @@ export const companyRoutes: FastifyPluginAsync = async (fastify) => {
 
     const prisma = request.prisma;
 
-    // Validate query params
     const queryResult = QueryEventsSchema.safeParse(request.query);
     if (!queryResult.success) {
       return reply.code(400).send({
@@ -257,70 +413,63 @@ export const companyRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    const { limit, cursor, from, to, category, action, projectId, workspaceId } = queryResult.data;
+    const { limit, offset, sort, order, from, to, category, action, projectId, workspaceId } =
+      queryResult.data;
 
     try {
-      // Build where clause - enforce company scope
-      const where: any = {
-        companyId,
-      };
-
-      if (category) where.category = category;
-      if (action) where.action = action;
-      if (projectId) where.projectId = projectId;
-      if (workspaceId) where.workspaceId = workspaceId;
-
-      if (from || to) {
-        where.timestamp = {};
-        if (from) where.timestamp.gte = new Date(from);
-        if (to) where.timestamp.lte = new Date(to);
-      }
-
-      // Cursor pagination
-      if (cursor) {
-        where.AND = [
-          { id: { lt: cursor } },
-          ...Object.keys(where).filter((k) => k !== 'AND' && k !== 'id').map((key) => ({
-            [key]: where[key],
-          })),
-        ];
-      }
-
-      const events = await prisma.auditEvent.findMany({
-        where,
-        take: limit,
-        orderBy: { timestamp: 'desc' },
-        select: {
-          id: true,
-          timestamp: true,
-          category: true,
-          action: true,
-          actorId: true,
-          actorEmail: true,
-          actorRole: true,
-          resourceType: true,
-          resourceId: true,
-          metadata: true,
-          traceId: true,
-          ipAddress: true,
-          geo: true,
-          userAgent: true,
-        },
+      const where = buildDashboardEventsWhere(companyId, {
+        from,
+        to,
+        category,
+        action,
+        projectId,
+        workspaceId,
       });
 
-      // Log audit action
+      const [total, events] = await Promise.all([
+        prisma.auditEvent.count({ where: where as any }),
+        prisma.auditEvent.findMany({
+          where: where as any,
+          skip: offset,
+          take: limit,
+          orderBy: buildEventListOrderBy(sort, order) as any,
+          select: {
+            id: true,
+            timestamp: true,
+            category: true,
+            action: true,
+            actorId: true,
+            actorEmail: true,
+            actorRole: true,
+            resourceType: true,
+            resourceId: true,
+            metadata: true,
+            traceId: true,
+            ipAddress: true,
+            geo: true,
+            userAgent: true,
+          },
+        }),
+      ]);
+
       await logDashboardAction(prisma, request, {
         action: 'EVENTS_QUERIED',
         actorUserId: request.dashboardAuth.userId,
         actorEmail: request.dashboardAuth.userEmail,
         actorRole: request.dashboardAuth.userRole,
         targetCompanyId: companyId,
-        metadata: { limit, filters: { category, action, projectId, workspaceId } },
+        metadata: {
+          limit,
+          offset,
+          sort,
+          order,
+          filters: { category, action, projectId, workspaceId, from, to },
+        },
       });
 
       return reply.send({
         events,
-        nextCursor: events.length === limit ? events[events.length - 1].id : null,
+        total,
       });
     } catch (error: any) {
       logger.error({ err: error, companyId }, 'Dashboard: Failed to query events');
@@ -509,6 +658,274 @@ export const companyRoutes: FastifyPluginAsync = async (fastify) => {
       });
     } catch (error: any) {
       logger.error({ err: error, companyId }, 'Dashboard: Failed to list webhooks');
+      return reply.code(500).send({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+    }
+  });
+
+  fastify.post('/webhooks', async (request, reply) => {
+    if (!request.dashboardAuth || !request.prisma) {
+      return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+    }
+    const bodyResult = CreateDashboardWebhookSchema.safeParse(request.body);
+    if (!bodyResult.success) {
+      return reply.code(400).send({
+        error: 'Validation error',
+        code: 'VALIDATION_ERROR',
+        details: bodyResult.error.errors,
+      });
+    }
+
+    const { companyId, userId, userEmail, userRole } = request.dashboardAuth;
+    const prisma = request.prisma;
+    if (!companyId) {
+      return reply.code(400).send({ error: 'Missing company ID', code: 'VALIDATION_ERROR' });
+    }
+    const { workspaceId, url, events, projectId } = bodyResult.data;
+    const uniqueEvents = [...new Set(events)] as Array<(typeof DASHBOARD_WEBHOOK_EVENT_NAMES)[number]>;
+
+    const urlValidation = validateDashboardWebhookUrl(url);
+    if (!urlValidation.valid) {
+      return reply.code(400).send({ error: urlValidation.error || 'Invalid webhook URL', code: 'VALIDATION_ERROR' });
+    }
+
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: { planTier: true, planOverrides: true },
+    });
+    if (!company) {
+      return reply.code(404).send({ error: 'Company not found', code: 'NOT_FOUND' });
+    }
+    try {
+      requireCompanyFeature(
+        { planTier: company.planTier, planOverrides: company.planOverrides as any },
+        'webhooksEnabled',
+        'GROWTH'
+      );
+    } catch (error: any) {
+      if (error instanceof PlanRestrictionError) {
+        return reply.code(403).send({
+          error: error.message || 'Webhooks require Growth plan or higher',
+          code: 'PLAN_RESTRICTED',
+        });
+      }
+      throw error;
+    }
+
+    const workspace = await prisma.workspace.findFirst({
+      where: { id: workspaceId, companyId },
+      select: { id: true },
+    });
+    if (!workspace) {
+      return reply.code(404).send({ error: 'Workspace not found', code: 'NOT_FOUND' });
+    }
+
+    if (projectId) {
+      const project = await prisma.project.findFirst({
+        where: { id: projectId, workspaceId },
+        select: { id: true },
+      });
+      if (!project) {
+        return reply.code(404).send({ error: 'Project not found or does not belong to workspace', code: 'NOT_FOUND' });
+      }
+    }
+
+    const existingWebhooks = await prisma.webhookEndpoint.count({
+      where: { workspaceId, companyId, status: 'ACTIVE' },
+    });
+    const newCount = existingWebhooks + 1;
+    try {
+      requireCompanyLimit(company, 'maxWebhooks', newCount, 'GROWTH');
+    } catch (error: any) {
+      if (error instanceof PlanRestrictionError) {
+        const limit = getCompanyLimit(company, 'maxWebhooks');
+        return reply.code(403).send({
+          error: `Webhook limit exceeded. Current plan allows ${limit} active webhooks (you have ${existingWebhooks}).`,
+          code: 'PLAN_RESTRICTED',
+        });
+      }
+      throw error;
+    }
+
+    const plaintextSecret = generateWebhookSecret();
+    const hashedSecret = hashWebhookSecret(plaintextSecret);
+    const encryptedSecret = encryptWebhookSecret(plaintextSecret);
+
+    const webhook = await prisma.webhookEndpoint.create({
+      data: {
+        url,
+        events: uniqueEvents,
+        status: 'ACTIVE',
+        companyId,
+        workspaceId,
+        projectId: projectId ?? null,
+        secretHashed: hashedSecret,
+        secretEncrypted: encryptedSecret,
+      },
+    });
+
+    await logDashboardAction(prisma, request, {
+      action: 'WEBHOOK_CREATED',
+      actorUserId: userId,
+      actorEmail: userEmail,
+      actorRole: userRole,
+      targetCompanyId: companyId,
+      metadata: { webhookId: webhook.id, workspaceId, projectId: projectId ?? null },
+    });
+
+    return reply.code(201).send({
+      id: webhook.id,
+      url: webhook.url,
+      status: webhook.status,
+      events: webhook.events,
+      workspaceId: webhook.workspaceId,
+      projectId: webhook.projectId,
+      secret: plaintextSecret,
+      createdAt: webhook.createdAt.toISOString(),
+    });
+  });
+
+  fastify.post<{ Params: { webhookId: string } }>('/webhooks/:webhookId/enable', async (request, reply) => {
+    if (!request.dashboardAuth || !request.prisma) {
+      return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+    }
+    const { companyId, userId, userEmail, userRole } = request.dashboardAuth;
+    const { webhookId } = request.params;
+    const prisma = request.prisma;
+    if (!companyId) {
+      return reply.code(400).send({ error: 'Missing company ID', code: 'VALIDATION_ERROR' });
+    }
+    const webhook = await prisma.webhookEndpoint.findFirst({
+      where: { id: webhookId, companyId },
+      select: { id: true, status: true },
+    });
+    if (!webhook) {
+      return reply.code(404).send({ error: 'Webhook not found', code: 'NOT_FOUND' });
+    }
+    if (webhook.status === 'ACTIVE') {
+      return reply.send({ id: webhook.id, status: webhook.status });
+    }
+    const updated = await prisma.webhookEndpoint.update({
+      where: { id: webhook.id },
+      data: { status: 'ACTIVE' },
+      select: { id: true, status: true },
+    });
+    await logDashboardAction(prisma, request, {
+      action: 'WEBHOOK_ENABLED',
+      actorUserId: userId,
+      actorEmail: userEmail,
+      actorRole: userRole,
+      targetCompanyId: companyId,
+      metadata: { webhookId: webhook.id },
+    });
+    return reply.send(updated);
+  });
+
+  fastify.post<{ Params: { webhookId: string } }>('/webhooks/:webhookId/disable', async (request, reply) => {
+    if (!request.dashboardAuth || !request.prisma) {
+      return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+    }
+    const { companyId, userId, userEmail, userRole } = request.dashboardAuth;
+    const { webhookId } = request.params;
+    const prisma = request.prisma;
+    if (!companyId) {
+      return reply.code(400).send({ error: 'Missing company ID', code: 'VALIDATION_ERROR' });
+    }
+    const webhook = await prisma.webhookEndpoint.findFirst({
+      where: { id: webhookId, companyId },
+      select: { id: true, status: true },
+    });
+    if (!webhook) {
+      return reply.code(404).send({ error: 'Webhook not found', code: 'NOT_FOUND' });
+    }
+    if (webhook.status === 'DISABLED') {
+      return reply.send({ id: webhook.id, status: webhook.status });
+    }
+    const updated = await prisma.webhookEndpoint.update({
+      where: { id: webhook.id },
+      data: { status: 'DISABLED' },
+      select: { id: true, status: true },
+    });
+    await logDashboardAction(prisma, request, {
+      action: 'WEBHOOK_DISABLED',
+      actorUserId: userId,
+      actorEmail: userEmail,
+      actorRole: userRole,
+      targetCompanyId: companyId,
+      metadata: { webhookId: webhook.id },
+    });
+    return reply.send(updated);
+  });
+
+  /**
+   * GET /dashboard/webhooks/:webhookId/deliveries
+   * List delivery attempts for a webhook owned by the authenticated company.
+   */
+  fastify.get('/webhooks/:webhookId/deliveries', async (request, reply) => {
+    if (!request.dashboardAuth || !request.prisma) {
+      return reply.code(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+    }
+
+    const { companyId } = request.dashboardAuth;
+    const { webhookId } = request.params as { webhookId: string };
+    if (!companyId) {
+      return reply.code(400).send({ error: 'Missing company ID', code: 'VALIDATION_ERROR' });
+    }
+
+    const q = QueryWebhookDeliveriesSchema.safeParse(request.query);
+    if (!q.success) {
+      return reply.code(400).send({
+        error: 'Validation error',
+        code: 'VALIDATION_ERROR',
+        details: q.error.errors,
+      });
+    }
+    const { limit, status } = q.data;
+    const prisma = request.prisma;
+
+    try {
+      const webhook = await prisma.webhookEndpoint.findFirst({
+        where: { id: webhookId, companyId },
+        select: { id: true },
+      });
+      if (!webhook) {
+        return reply.code(404).send({ error: 'Webhook not found', code: 'NOT_FOUND' });
+      }
+
+      const attempts = await prisma.webhookDeliveryAttempt.findMany({
+        where: {
+          webhookId,
+          ...(status ? { status } : {}),
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        select: {
+          id: true,
+          eventId: true,
+          attempt: true,
+          status: true,
+          responseStatus: true,
+          errorCode: true,
+          errorMessage: true,
+          durationMs: true,
+          createdAt: true,
+        },
+      });
+
+      return reply.send({
+        deliveries: attempts.map((a) => ({
+          id: a.id,
+          eventId: a.eventId,
+          attempt: a.attempt,
+          status: a.status,
+          responseStatus: a.responseStatus,
+          errorCode: a.errorCode,
+          errorMessage: a.errorMessage,
+          durationMs: a.durationMs,
+          createdAt: a.createdAt.toISOString(),
+        })),
+      });
+    } catch (error: any) {
+      logger.error({ err: error, companyId, webhookId }, 'Dashboard: Failed to list webhook deliveries');
       return reply.code(500).send({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
     }
   });

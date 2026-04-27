@@ -22,6 +22,13 @@ export async function getUsageForCompany(apiCompanyId: string): Promise<UsageSum
   const baseUrl = config.dashboardUsageUrl;
   const token = config.dashboardServiceToken;
   if (!baseUrl || !token) {
+    logger.warn(
+      {
+        hasDashboardUsageUrl: Boolean(baseUrl),
+        hasDashboardServiceToken: Boolean(token),
+      },
+      'Usage API disabled: HYRELOG_DASHBOARD_URL/DASHBOARD_USAGE_URL and DASHBOARD_SERVICE_TOKEN are required'
+    );
     return null;
   }
 
@@ -52,6 +59,15 @@ export async function incrementUsage(
   const baseUrl = config.dashboardUsageUrl;
   const token = config.dashboardServiceToken;
   if (!baseUrl || !token) {
+    logger.warn(
+      {
+        apiCompanyId,
+        type,
+        hasDashboardUsageUrl: Boolean(baseUrl),
+        hasDashboardServiceToken: Boolean(token),
+      },
+      'Skipping usage increment: HYRELOG_DASHBOARD_URL/DASHBOARD_USAGE_URL and DASHBOARD_SERVICE_TOKEN are required'
+    );
     return;
   }
 

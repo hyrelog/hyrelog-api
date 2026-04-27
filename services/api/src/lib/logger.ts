@@ -10,20 +10,13 @@ export function getLogger(): pino.Logger {
 
   const config = loadConfig();
 
-  loggerInstance = pino({
-    level: config.logLevel,
-    transport:
-      config.nodeEnv === 'development'
-        ? {
-            target: 'pino-pretty',
-            options: {
-              colorize: true,
-              translateTime: 'HH:MM:ss Z',
-              ignore: 'pid,hostname',
-            },
-          }
-        : undefined,
-  });
+  // In development, use sync stdout so logs appear in PowerShell/Cursor (no pino-pretty worker).
+  const isDev = config.nodeEnv === 'development';
+  const dest = isDev ? pino.destination({ dest: 1, sync: true, minLength: 0 }) : undefined;
+
+  loggerInstance = dest
+    ? pino({ level: config.logLevel }, dest)
+    : pino({ level: config.logLevel });
 
   return loggerInstance;
 }

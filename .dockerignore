@@ -1,0 +1,21 @@
+# Hyrelog-api: context for service Dockerfiles
+node_modules
+**/node_modules
+dist
+**/dist
+.git
+.github
+**/.env
+**/.env.*
+!.env.example
+*.md
+docs
+cdk.out
+**/*.tsbuildinfo
+.DS_Store
+npm-debug.log*
+coverage
+.turbo
+**/__tests__
+**/*.test.ts
+**/infra/cdk.out

@@ -114,7 +114,7 @@ const eventsRoutesImpl: FastifyPluginAsync = async (fastify) => {
     }
 
     const prisma = request.prisma;
-    const apiKey = request.apiKey;
+    const apiKeyRef = request.apiKey;
 
     const company = await prisma.company.findUnique({
       where: { id: apiKeyRef.companyId },
@@ -160,7 +160,6 @@ const eventsRoutesImpl: FastifyPluginAsync = async (fastify) => {
     }
 
     const data = bodyResult.data;
-    const apiKeyRef = request.apiKey;
 
     // Determine timestamp
     const timestamp = data.timestamp ? new Date(data.timestamp) : new Date();
@@ -334,7 +333,11 @@ const eventsRoutesImpl: FastifyPluginAsync = async (fastify) => {
         200: {
           type: 'object',
           properties: {
-            data: { type: 'array', items: { type: 'object' }, description: 'List of audit events' },
+            data: {
+              type: 'array',
+              items: { type: 'object', additionalProperties: true },
+              description: 'List of audit events'
+            },
             nextCursor: { type: ['string', 'null'], description: 'Cursor for next page, or null' },
           },
           required: ['data', 'nextCursor'],

@@ -10,7 +10,6 @@ import { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { loadConfig } from '../lib/config.js';
 import { getRegionRouter } from '../lib/regionRouter.js';
 import { getLogger } from '../lib/logger.js';
-import { getTraceId } from '../lib/trace.js';
 
 import type { PrismaClientType } from '../lib/regionRouter.js';
 
@@ -38,26 +37,22 @@ export const dashboardAuthPlugin: FastifyPluginAsync = async (fastify) => {
 
   // Verify DASHBOARD_SERVICE_TOKEN is configured
   if (!config.dashboardServiceToken) {
-    logger.warn('Dashboard auth plugin: DASHBOARD_SERVICE_TOKEN not configured - dashboard routes will be disabled');
+    logger.warn(
+      'Dashboard auth plugin: DASHBOARD_SERVICE_TOKEN not set - dashboard routes will return 401. ' +
+        'Set DASHBOARD_SERVICE_TOKEN in the API .env to match the dashboard .env.'
+    );
     return;
   }
 
-  fastify.addHook('onRequest', async (request: FastifyRequest, reply) => {
-    // Only apply to /dashboard routes
-    if (!request.url.startsWith('/dashboard')) {
-      return;
-    }
+  logger.info('Dashboard auth plugin: DASHBOARD_SERVICE_TOKEN is set - dashboard routes enabled');
+
+  fastify.addHook('preValidation', async (request: FastifyRequest, reply) => {
+    // When registered under prefix /dashboard, request.url may be e.g. /companies (no prefix).
+    // Run auth for every request that reaches this plugin.
 
     try {
-      // Verify service token
-      const token = request.headers['x-dashboard-token'] as string | undefined;
-      if (!token || token !== config.dashboardServiceToken) {
-        logger.warn({ url: request.url }, 'Dashboard auth: Missing or invalid service token');
-        return reply.code(401).send({
-          error: 'Missing or invalid dashboard service token',
-          code: 'UNAUTHORIZED',
-        });
-      }
+      // Token is already validated by setupAuthHook in auth.ts; do not check again
+      // (avoids duplicate check that could disagree due to timing/config).
 
       // Require actor headers
       const userId = request.headers['x-user-id'] as string | undefined;
@@ -65,27 +60,32 @@ export const dashboardAuthPlugin: FastifyPluginAsync = async (fastify) => {
       const userRole = request.headers['x-user-role'] as string | undefined;
 
       if (!userId || !userEmail || !userRole) {
-        logger.warn({ url: request.url }, 'Dashboard auth: Missing required actor headers');
         return reply.code(400).send({
-          error: 'Missing required headers: x-user-id, x-user-email, x-user-role',
+          error:
+            'Dashboard auth: missing required headers x-user-id, x-user-email, x-user-role. Pass actor when calling the API.',
           code: 'VALIDATION_ERROR',
+          reason: 'missing_actor_headers',
         });
       }
 
       // Routes that do not require x-company-id (they get company from body or path)
       const path = request.url.split('?')[0];
-      const postCompanies = request.method === 'POST' && path === '/dashboard/companies';
-      const getCompanyByParam = request.method === 'GET' && /^\/dashboard\/companies\/[^/]+$/.test(path);
-      const isCompanyScoped = !request.url.startsWith('/dashboard/admin') && !postCompanies && !getCompanyByParam;
+      const pathNorm = path.startsWith('/dashboard') ? path : `/dashboard${path === '/' ? '' : path}`;
+      const postCompanies = request.method === 'POST' && (pathNorm === '/dashboard/companies' || path === '/companies');
+      const getCompanyByParam =
+        request.method === 'GET' &&
+        (/^\/dashboard\/companies\/[^/]+$/.test(pathNorm) || /^\/companies\/[^/]+$/.test(path));
+      const isCompanyScoped =
+        !pathNorm.startsWith('/dashboard/admin') && !postCompanies && !getCompanyByParam;
       let companyId: string | undefined;
 
       if (isCompanyScoped) {
         companyId = request.headers['x-company-id'] as string | undefined;
         if (!companyId) {
-          logger.warn({ url: request.url }, 'Dashboard auth: Missing x-company-id for company-scoped route');
           return reply.code(400).send({
-            error: 'Missing required header: x-company-id',
+            error: 'Dashboard auth: x-company-id header required for this route.',
             code: 'VALIDATION_ERROR',
+            reason: 'missing_company_id',
           });
         }
 
@@ -116,10 +116,10 @@ export const dashboardAuthPlugin: FastifyPluginAsync = async (fastify) => {
         }
 
         if (!found) {
-          logger.warn({ url: request.url, companyId }, 'Dashboard auth: Company not found');
           return reply.code(404).send({
-            error: 'Company not found',
+            error: 'Company not found for x-company-id.',
             code: 'NOT_FOUND',
+            reason: 'company_not_found',
           });
         }
 
@@ -155,10 +155,10 @@ export const dashboardAuthPlugin: FastifyPluginAsync = async (fastify) => {
         'Dashboard auth: Request authenticated'
       );
     } catch (error) {
-      logger.error({ err: error, url: request.url }, 'Dashboard auth: Error in hook');
       return reply.code(500).send({
-        error: 'Internal server error during authentication',
+        error: 'Dashboard auth: internal error during authentication.',
         code: 'INTERNAL_ERROR',
+        reason: 'auth_error',
       });
     }
   });
