@@ -1,0 +1,39 @@
+# Manual OIDC + AWS identity check. No ECR/ECS secrets required.
+# Run: Actions → "AWS OIDC preflight" → Run workflow
+name: AWS OIDC preflight
+
+on:
+  workflow_dispatch:
+  # Optional: re-enable if you want this on every push to main while bootstrapping
+  # push:
+  #   branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Verify caller identity
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity
+          echo "OK: GitHub OIDC can assume the deploy role and call AWS APIs."
+
+      - name: (Optional) List ECR repositories
+        run: |
+          set -euo pipefail
+          aws ecr describe-repositories --max-items 20 || {
+            echo "Note: ecr:DescribeRepositories failed — often missing in IAM role policy, or ECR not used yet. OIDC is still OK if the previous step passed."
+            exit 0
+          }
+        continue-on-error: true
