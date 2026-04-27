@@ -33,16 +33,19 @@ docker compose up -d
 ```
 
 This starts:
+
 - 4 Postgres databases (one per region: US, EU, UK, AU)
 - 1 Postgres database for the dashboard auth (hyrelog-dashboard - better-auth)
 - MinIO (S3-compatible storage for local development)
 
 **Verify containers are running:**
+
 ```bash
 docker ps
 ```
 
 You should see 6 containers:
+
 - `hyrelog-postgres-us` (port 54321)
 - `hyrelog-postgres-eu` (port 54322)
 - `hyrelog-postgres-uk` (port 54323)
@@ -73,6 +76,7 @@ npm install
 ```
 
 This installs dependencies for:
+
 - Root workspace
 - `services/api`
 - `services/worker`
@@ -91,6 +95,7 @@ npm run prisma:migrate:all
 ```
 
 This script will:
+
 - Run migrations against all 4 Postgres databases (US, EU, UK, AU)
 - Create the initial migration if it doesn't exist
 - Apply migrations to each database
@@ -136,6 +141,7 @@ npm run dev
 ```
 
 You should see output like:
+
 ```
 [INFO] HyreLog API server started
 [INFO] Server listening on http://0.0.0.0:3000
@@ -180,6 +186,7 @@ MinIO provides an S3-compatible interface for local development. Access the MinI
 ### Create Buckets (Optional)
 
 In the MinIO Console, you can create buckets for each region:
+
 - `hyrelog-archive-us`
 - `hyrelog-archive-eu`
 - `hyrelog-archive-uk`
@@ -250,11 +257,13 @@ hyrelog-api/
 View and edit your database through Prisma Studio:
 
 **For US Region (default):**
+
 ```powershell
 npm run prisma:studio:us
 ```
 
 **For other regions, set DATABASE_URL manually:**
+
 ```powershell
 # EU Region
 $env:DATABASE_URL="postgresql://hyrelog:hyrelog@localhost:54322/hyrelog_eu"
@@ -303,12 +312,14 @@ npm run cdk -- deploy --context region=us-east-1
 ```
 
 **Supported regions:**
+
 - US: `--context region=us-east-1`
 - EU: `--context region=eu-west-1`
 - UK: `--context region=eu-west-2`
 - AU: `--context region=ap-southeast-2`
 
 **Example: Deploy to EU region**
+
 ```bash
 npm run cdk -- deploy --context region=eu-west-1
 ```
@@ -318,6 +329,7 @@ The stack will be named `HyrelogStack-EU` and all resources will be tagged with 
 ### View Stack Outputs
 
 After deployment, CDK will output:
+
 - VPC ID
 - ECS Cluster name
 - ECR Repository URIs
@@ -368,6 +380,7 @@ Phase 2 adds signed webhook delivery for near-real-time event notifications.
 ### Setup
 
 1. **Add webhook encryption key to `.env`**:
+
    ```bash
    # Generate a 32-byte hex key (64 hex characters)
    # You can use: openssl rand -hex 32
@@ -375,6 +388,7 @@ Phase 2 adds signed webhook delivery for near-real-time event notifications.
    ```
 
 2. **Run migrations**:
+
    ```bash
    npm run prisma:migrate:all
    npm run prisma:generate
@@ -389,18 +403,23 @@ Phase 2 adds signed webhook delivery for near-real-time event notifications.
 ### Testing Webhooks Locally
 
 1. **Start webhook receiver** (in a separate terminal):
+
    ```bash
    node tools/webhook-receiver.js
    ```
+
    This starts a server on `http://localhost:3001` that logs all webhook deliveries.
 
 2. **Start the worker** (in another terminal):
+
    ```bash
    npm run worker
    ```
+
    The worker polls for webhook jobs and processes deliveries.
 
 3. **Create a webhook endpoint**:
+
    ```bash
    curl -X POST "http://localhost:3000/v1/workspaces/{workspace_id}/webhooks" \
      -H "Authorization: Bearer {company_key}" \
@@ -410,10 +429,11 @@ Phase 2 adds signed webhook delivery for near-real-time event notifications.
        "events": ["AUDIT_EVENT_CREATED"]
      }'
    ```
-   
+
    **Note**: The response includes a `secret` field - save this! You'll need it to verify signatures.
 
 4. **Ingest an event**:
+
    ```bash
    curl -X POST "http://localhost:3000/v1/events" \
      -H "Authorization: Bearer {workspace_key}" \
@@ -445,10 +465,7 @@ const timestamp = req.headers['x-hyrelog-timestamp'];
 const body = req.body; // Raw JSON string
 
 const providedSig = signature.replace(/^v1=/, '');
-const computedSig = crypto
-  .createHmac('sha256', webhookSecret)
-  .update(body)
-  .digest('hex');
+const computedSig = crypto.createHmac('sha256', webhookSecret).update(body).digest('hex');
 
 if (providedSig === computedSig) {
   // Signature is valid
@@ -458,6 +475,7 @@ if (providedSig === computedSig) {
 ### Retry Schedule
 
 Webhook deliveries are retried up to 5 times:
+
 - Attempt 1: Immediate
 - Attempt 2: +1 minute
 - Attempt 3: +5 minutes
@@ -475,6 +493,7 @@ After 5 failed attempts, the webhook is marked as permanently failed.
 - `GET /v1/webhooks/:webhookId/deliveries` - Get delivery attempts
 
 All webhook management endpoints require:
+
 - Company key authentication
 - IP allowlist on the company key
 - Rate limiting (10 operations/minute)
@@ -509,11 +528,13 @@ If you see "port already in use" errors:
 ## Phase 0 Deliverables Checklist
 
 ✅ **Root workspace files**
+
 - [x] Root `package.json` with npm workspaces
 - [x] `.env.example` with all required variables
 - [x] TypeScript and Prettier configs
 
 ✅ **API service scaffold**
+
 - [x] Fastify server with TypeScript
 - [x] Config loader with Zod validation
 - [x] Structured logging (Pino)
@@ -523,6 +544,7 @@ If you see "port already in use" errors:
 - [x] Internal routes (`/internal/health`, `/internal/metrics`)
 
 ✅ **Prisma schema**
+
 - [x] All required models (Company, Workspace, Project, AuditEvent, ApiKey, etc.)
 - [x] All required enums (Region, ApiKeyScope, GdprRequestStatus, etc.)
 - [x] Multi-region support
@@ -530,12 +552,14 @@ If you see "port already in use" errors:
 - [x] GDPR schema (GdprRequest, GdprApproval)
 
 ✅ **Worker service scaffold**
+
 - [x] Worker runner placeholder
 - [x] Archival job placeholder
 - [x] GDPR worker placeholder
 - [x] Webhook worker placeholder
 
 ✅ **CDK infrastructure**
+
 - [x] Multi-region deployable stack
 - [x] VPC, ECS Cluster, ECR repos
 - [x] RDS Postgres (encrypted, backups)
@@ -543,6 +567,7 @@ If you see "port already in use" errors:
 - [x] CloudWatch log groups
 
 ✅ **Documentation**
+
 - [x] Comprehensive README with beginner-friendly steps
 - [x] Setup instructions
 - [x] Troubleshooting guide
@@ -554,6 +579,7 @@ Phase 1 is now complete! The API includes:
 ### Security Measures
 
 **Key Management Security:**
+
 - **Company key creation**: Dashboard-only (not available via API)
 - **Key revocation**: Dashboard-only (requires confirmation dialogs)
 - **Workspace key creation**: API-accessible but requires:
@@ -566,6 +592,7 @@ Phase 1 is now complete! The API includes:
   - Comprehensive audit logging
 
 **Why these restrictions?**
+
 - Company keys are high-privilege and should require dashboard authentication + 2FA
 - Key revocation is destructive and needs proper confirmation
 - Workspace key creation/rotation can be automated but needs IP restrictions
@@ -574,23 +601,27 @@ Phase 1 is now complete! The API includes:
 The API includes:
 
 ✅ **API Key Authentication**
+
 - Workspace keys (ingest + read within workspace)
 - Company keys (read/export across all workspaces; cannot ingest)
 - HMAC-SHA256 key hashing
 - Cross-region key lookup with caching
 
 ✅ **Event Ingestion** (`POST /v1/events`)
+
 - Append-only events with hash chaining
 - Idempotency support
 - Request context capture (traceId, IP, userAgent)
 - Workspace key authentication required
 
 ✅ **Event Query** (`GET /v1/events`)
+
 - Filtering by category, action, project, workspace, date range
 - Cursor-based pagination
 - Scoped access (company vs workspace)
 
 ✅ **Key Management**
+
 - Create workspace keys (`POST /v1/workspaces/:workspaceId/keys`) - Requires company key with IP allowlist
 - Rotate keys (`POST /v1/keys/:keyId/rotate`) - Requires company key with IP allowlist
 - Key status (`GET /v1/keys/status`) - Read-only, less restrictive
@@ -598,12 +629,14 @@ The API includes:
 - **Create company keys**: Dashboard-only (not available via API)
 
 ✅ **Rate Limiting**
+
 - Per API key: 1200 requests/min (configurable)
 - Per IP: 600 requests/min (configurable)
 - Headers on all responses: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
 - 429 responses with `Retry-After` header
 
 ✅ **Multi-Region Support**
+
 - Region-aware request routing
 - Company dataRegion determines database
 - Cross-region API key lookup
@@ -611,33 +644,37 @@ The API includes:
 ### Phase 1 Setup
 
 1. **Add API_KEY_SECRET to .env:**
+
    ```powershell
    # Add to your .env file:
    API_KEY_SECRET=dev-api-key-secret-change-in-production
    ```
 
 2. **Run migrations (if not already done):**
+
    ```powershell
    npm run prisma:migrate:all
    ```
 
 3. **Generate Prisma Client:**
+
    ```powershell
    npm run prisma:generate
    ```
 
 4. **Seed test data:**
+
    ```powershell
    npm run seed
    ```
-   
+
    This creates:
    - A Company (Acme Corp)
    - A Workspace (Production)
    - A Project (Main App)
    - A Company API key (for reading/exporting)
    - A Workspace API key (for ingesting events)
-   
+
    **Important**: The seed script prints plaintext API keys to the console. Save these - they're shown only once!
 
 5. **Start the API:**
@@ -648,6 +685,7 @@ The API includes:
 ### Phase 1 API Examples
 
 **Ingest an event (workspace key):**
+
 ```powershell
 $workspaceKey = "hlk_ws_..." # From seed output
 
@@ -667,6 +705,7 @@ curl -X POST http://localhost:3000/v1/events `
 ```
 
 **Query events (company key):**
+
 ```powershell
 $companyKey = "hlk_co_..." # From seed output
 
@@ -676,6 +715,7 @@ curl "http://localhost:3000/v1/events?limit=10&category=user" `
 
 **Check rate limit headers:**
 All responses include:
+
 - `X-RateLimit-Limit`: Maximum requests per minute
 - `X-RateLimit-Remaining`: Remaining requests in current window
 - `X-RateLimit-Reset`: ISO timestamp when limit resets
@@ -683,6 +723,7 @@ All responses include:
 ### Phase 1 Postman Collection
 
 Import the Postman collection from `postman/` directory:
+
 - `HyreLog API.postman_collection.json` - Updated with Phase 1 endpoints
 - `HyreLog Local.postman_environment.json` - Environment variables
 
@@ -702,6 +743,7 @@ Phase 3 adds streaming exports, retention enforcement, and automated archival to
 ### Setup
 
 1. **Ensure S3/MinIO is configured in `.env`**:
+
    ```bash
    S3_ENDPOINT=http://localhost:9000
    S3_ACCESS_KEY_ID=minioadmin
@@ -719,6 +761,7 @@ Phase 3 adds streaming exports, retention enforcement, and automated archival to
    - Create buckets: `hyrelog-archive-us`, `hyrelog-archive-eu`, `hyrelog-archive-uk`, `hyrelog-archive-au`
 
 3. **Run migrations**:
+
    ```bash
    npm run prisma:migrate:all
    npm run prisma:generate
@@ -733,6 +776,7 @@ Phase 3 adds streaming exports, retention enforcement, and automated archival to
 ### Testing Exports
 
 1. **Create an export job**:
+
    ```bash
    curl -X POST "http://localhost:3000/v1/exports" \
      -H "Authorization: Bearer {company_key}" \
@@ -746,8 +790,9 @@ Phase 3 adds streaming exports, retention enforcement, and automated archival to
        "limit": 100
      }'
    ```
-   
+
    Response:
+
    ```json
    {
      "jobId": "export-job-uuid",
@@ -756,6 +801,7 @@ Phase 3 adds streaming exports, retention enforcement, and automated archival to
    ```
 
 2. **Check export job status**:
+
    ```bash
    curl "http://localhost:3000/v1/exports/{job_id}" \
      -H "Authorization: Bearer {company_key}"
@@ -771,6 +817,7 @@ Phase 3 adds streaming exports, retention enforcement, and automated archival to
 ### Testing Worker Jobs
 
 **Run a specific job:**
+
 ```bash
 npm run worker retention-marking
 npm run worker archival
@@ -779,11 +826,13 @@ npm run worker cold-archive-marker
 ```
 
 **Run all jobs continuously:**
+
 ```bash
 npm run worker
 ```
 
 This starts:
+
 - Webhook worker (continuous polling)
 - Daily jobs (retention, archival, verification) - runs every 24 hours
 - Weekly jobs (cold archive marker) - runs every 7 days
@@ -791,11 +840,13 @@ This starts:
 ### Export Formats
 
 **JSONL (Newline-Delimited JSON):**
+
 - One event per line
 - Full event data including metadata
 - Easy to parse line-by-line
 
 **CSV:**
+
 - Header row with column names
 - Escaped values (quotes doubled)
 - Metadata field is JSON stringified
@@ -816,11 +867,13 @@ This starts:
 ### Worker Job Details
 
 **Retention Marking (Daily):**
+
 - Marks events older than `hotRetentionDays` as `archivalCandidate=true`
 - Plan-based: uses `Company.plan.hotRetentionDays` (with `planOverrides` applied)
 - Does NOT delete events
 
 **Archival (Daily):**
+
 - Processes events with `archivalCandidate=true` and `archived=false`
 - Groups by UTC date (YYYY-MM-DD)
 - Creates gzipped JSONL files
@@ -829,12 +882,14 @@ This starts:
 - Marks events as `archived=true`
 
 **Archive Verification (Daily):**
+
 - Processes `ArchiveObject` records where `verifiedAt` is null
 - Downloads and recomputes SHA-256 hash
 - Updates `verifiedAt` on success
 - Records `verificationError` on mismatch
 
 **Cold Archive Marker (Weekly):**
+
 - Marks `ArchiveObject` records older than `coldArchiveAfterDays`
 - Sets `isColdArchived=true` and `coldArchiveKey`
 - Metadata-only (actual Glacier transition handled by AWS lifecycle rules)
@@ -846,6 +901,7 @@ This starts:
 - `GET /v1/exports/:jobId/download` - Stream export data
 
 All endpoints require:
+
 - Company key or Workspace key authentication
 - Plan enforcement (STARTER+ for exports)
 - Rate limiting
@@ -885,12 +941,15 @@ Phase 4 adds protected dashboard endpoints with service token authentication, au
 ### Setup
 
 1. **Add DASHBOARD_SERVICE_TOKEN to `.env`**:
+
    ```bash
    DASHBOARD_SERVICE_TOKEN=your-secure-token-here
    ```
+
    Generate a secure token: `openssl rand -hex 32`
 
 2. **Run migrations**:
+
    ```bash
    npm run prisma:migrate:all
    npm run prisma:generate
@@ -906,20 +965,24 @@ Phase 4 adds protected dashboard endpoints with service token authentication, au
 All `/dashboard/*` endpoints require:
 
 **Required Headers:**
+
 - `x-dashboard-token`: Must match `DASHBOARD_SERVICE_TOKEN` env var
 - `x-user-id`: User ID from dashboard
 - `x-user-email`: User email
 - `x-user-role`: User role (e.g., "ADMIN", "MEMBER", "HYRELOG_ADMIN")
 
 **Company-Scoped Routes (also require):**
+
 - `x-company-id`: Company ID for the request
 
 **Admin Routes:**
+
 - Require `x-user-role: HYRELOG_ADMIN`
 
 ### Testing Dashboard Endpoints
 
 **Example: Get company info**
+
 ```bash
 curl -X GET "http://localhost:3000/dashboard/company" \
   -H "x-dashboard-token: your-token" \
@@ -930,6 +993,7 @@ curl -X GET "http://localhost:3000/dashboard/company" \
 ```
 
 **Example: Create restore request**
+
 ```bash
 curl -X POST "http://localhost:3000/dashboard/restore-requests" \
   -H "x-dashboard-token: your-token" \
@@ -946,6 +1010,7 @@ curl -X POST "http://localhost:3000/dashboard/restore-requests" \
 ```
 
 **Example: Admin approve restore request**
+
 ```bash
 curl -X POST "http://localhost:3000/dashboard/admin/restore-requests/{id}/approve" \
   -H "x-dashboard-token: your-token" \
@@ -972,6 +1037,7 @@ curl -X POST "http://localhost:3000/dashboard/admin/restore-requests/{id}/approv
 ### Local Development (MinIO)
 
 In development mode (when `S3_ENDPOINT` is set), restore operations are simulated:
+
 - Restore requests complete after ~2 minutes
 - No actual AWS Glacier operations
 - Cost estimates are still calculated
@@ -979,16 +1045,19 @@ In development mode (when `S3_ENDPOINT` is set), restore operations are simulate
 ### Worker Jobs
 
 **Restore Initiator** (runs every 5 minutes):
+
 ```bash
 npm run worker restore-initiator
 ```
 
 **Restore Status Checker** (runs every 15 minutes):
+
 ```bash
 npm run worker restore-status-checker
 ```
 
 **Restore Expiration** (runs daily):
+
 ```bash
 npm run worker restore-expiration
 ```
@@ -996,6 +1065,7 @@ npm run worker restore-expiration
 ### Export Integration
 
 When exporting `ARCHIVED` or `HOT_AND_ARCHIVED` data:
+
 - If any ArchiveObject is cold archived and not currently restored → Returns `RESTORE_REQUIRED` error
 - Includes `archiveIds` array in error response
 - Export fails fast before processing begins
@@ -1003,6 +1073,7 @@ When exporting `ARCHIVED` or `HOT_AND_ARCHIVED` data:
 ### API Endpoints
 
 **Company-Scoped:**
+
 - `GET /dashboard/company` - Get company summary
 - `GET /dashboard/events` - Query events (company-scoped)
 - `POST /dashboard/exports` - Create export
@@ -1019,6 +1090,7 @@ When exporting `ARCHIVED` or `HOT_AND_ARCHIVED` data:
 - `DELETE /dashboard/restore-requests/:id` - Cancel restore request (PENDING only)
 
 **Admin-Only:**
+
 - `GET /dashboard/admin/companies` - List/search companies
 - `GET /dashboard/admin/plans` - List plans
 - `POST /dashboard/admin/companies/:id/plan` - Assign plan
@@ -1033,6 +1105,7 @@ All endpoints require dashboard authentication and log actions to `AuditLog` tab
 ## Next Steps (Phase 5+)
 
 Future phases will implement:
+
 - GDPR anonymization workflow
 - SSE tail (real-time event streaming)
 - SIEM integrations
@@ -1043,6 +1116,7 @@ Future phases will implement:
 ## Support
 
 For issues or questions:
+
 1. Check the troubleshooting section above
 2. Review the code comments (especially in placeholder jobs)
 3. Check Prisma and Fastify documentation
@@ -1050,4 +1124,3 @@ For issues or questions:
 ---
 
 **Happy coding! 🚀**
-
