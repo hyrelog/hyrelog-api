@@ -55,7 +55,7 @@ async function buildServer() {
   // would encapsulate the hook away from the dashboard routes.
   await server.register(
     async (dashboardApp) => {
-      await dashboardAuthPlugin(dashboardApp);
+      await dashboardAuthPlugin(dashboardApp, {});
       await dashboardApp.register(dashboardRoutes);
     },
     { prefix: '/dashboard' }

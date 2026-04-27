@@ -606,7 +606,7 @@ async function streamHotData(
     try {
       while (rowsExported < rowLimit) {
         // Fetch events in batches (cursor pagination)
-        const events = await prisma.auditEvent.findMany({
+        const events: any[] = await prisma.auditEvent.findMany({
           where: {
             ...where,
             ...(lastCursor && { id: { gt: lastCursor } }),
@@ -622,7 +622,7 @@ async function streamHotData(
 
         logger.debug({ jobId: exportJob.id, eventCount: events.length, lastCursor }, 'HOT export: Fetched batch of events');
 
-        for (const event of events) {
+        for (const event of events as any[]) {
           if (rowsExported >= rowLimit) {
             break;
           }

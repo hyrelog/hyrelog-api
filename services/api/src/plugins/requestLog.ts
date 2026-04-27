@@ -12,14 +12,13 @@ function now(): string {
 }
 
 export const requestLogPlugin: FastifyPluginAsync = async (fastify) => {
-  fastify.addHook('onRequest', (request, _reply, done) => {
+  fastify.addHook('onRequest', async (request) => {
     const url = request.url.split('?')[0];
     (request as any).__requestLogStart = Date.now();
     process.stderr.write(`[API] ${now()} -> ${request.method} ${url}\n`);
-    done();
   });
 
-  fastify.addHook('onResponse', (request, reply, _payload, done) => {
+  fastify.addHook('onResponse', async (request, reply) => {
     const url = request.url.split('?')[0];
     const elapsed = (request as any).__requestLogStart != null
       ? Date.now() - (request as any).__requestLogStart
@@ -27,6 +26,5 @@ export const requestLogPlugin: FastifyPluginAsync = async (fastify) => {
     process.stderr.write(
       `[API] ${now()} <- ${reply.statusCode} ${request.method} ${url} ${elapsed}ms\n`
     );
-    done();
   });
 };
