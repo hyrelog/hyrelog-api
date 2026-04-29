@@ -27,6 +27,71 @@ This covers your HyreLog production-style setup end to end:
 
 ---
 
+## 0.1) IAM permissions (your laptop identity vs. the bastion)
+
+Two different IAM setups are involved:
+
+| Who | What they need |
+|-----|----------------|
+| **Your AWS identity** (IAM user, or IAM Identity Center / SSO role you use with `aws sso login`) | Permission to run **`aws ssm start-session`** (port forward), describe EC2/RDS/SSM for discovery, and end sessions. |
+| **The bastion EC2 instance** | An **instance profile** with **`AmazonSSMManagedInstanceCore`** (or equivalent) so SSM can reach the host. This is **not** the same as your user policy — it is attached to the **instance**, not to you. |
+
+### Minimum actions for *your* identity
+
+The bullets in §0 map to the JSON in **`docs/deployment/iam-dbeaver-ssm-operator-policy.json`** (account **`163436765242`**, region **`ap-southeast-2`**). That file also includes **`ssm:DescribeInstanceInformation`**, which §3 uses when listing SSM-managed instances — add it if you omit it and get **AccessDenied** on **`describe-instance-information`**.
+
+- **`ssm:StartSession`** — must allow both:
+  - The **bastion instance** (`arn:aws:ec2:…:instance/…` or `…:instance/*` if you accept broader scope).
+  - The **AWS-managed SSM document** for port forwarding to a remote host:  
+    `arn:aws:ssm:ap-southeast-2::document/AWS-StartPortForwardingSessionToRemoteHost`  
+    (note the **empty account** in `::document` for AWS-owned documents).
+- **`ssm:TerminateSession`** — usually **`Resource": "*"`** so you can stop sessions by ID.
+- **`ec2:DescribeInstances`**, **`rds:DescribeDBInstances`** — read-only discovery (`Resource: "*"` is typical).
+
+Tighten **`ssm:StartSession`** later by replacing **`instance/*`** with your bastion’s **`i-…`** ARN only.
+
+### How to attach this policy
+
+**A) Long-lived IAM user (access keys / `aws configure`)**
+
+1. IAM → **Users** → your user → **Permissions** → **Add permissions** → **Create inline policy** → **JSON** → paste the contents of **`iam-dbeaver-ssm-operator-policy.json`**, or attach a **customer managed policy** with the same statements.
+2. Or Git Bash (inline JSON, same pattern as `github-deploy-policy`):
+
+```bash
+cd /c/Users/kram/Dropbox/hyrelog/hyrelog-api/docs/deployment
+
+aws iam put-user-policy \
+  --user-name YOUR_IAM_USER_NAME \
+  --policy-name dbeaver-ssm-operator \
+  --policy-document "$(jq -c . iam-dbeaver-ssm-operator-policy.json)"
+```
+
+**B) IAM Identity Center (SSO)**
+
+Policies are not attached with **`put-user-policy`**. An admin must add equivalent permissions to your **permission set** (IAM Identity Center → **Permission sets** → edit → **Customer managed policy** or inline policy). Use the same JSON as **`iam-dbeaver-ssm-operator-policy.json`**.
+
+**C) Assume-role workflow**
+
+If you use **`aws sts assume-role`**, attach the policy to that **role** instead:
+
+```bash
+aws iam put-role-policy \
+  --role-name YOUR_ROLE_NAME \
+  --policy-name dbeaver-ssm-operator \
+  --policy-document "$(jq -c . iam-dbeaver-ssm-operator-policy.json)"
+```
+
+### Bastion EC2 (reminder)
+
+Ensure the bastion has:
+
+- **SSM Agent** running (Amazon Linux / recent Ubuntu AMIs include it).
+- An **instance profile** with **`AmazonSSMManagedInstanceCore`** (and networking so SSM endpoints work — VPC endpoints or a route to the service).
+
+Without that, **your** permissions are irrelevant; sessions will not start.
+
+---
+
 ## 1) Verify local tools
 
 Run in Git Bash or PowerShell:

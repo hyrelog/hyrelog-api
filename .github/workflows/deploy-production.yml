@@ -91,16 +91,16 @@ jobs:
             local family="$1"
             local full_image="$2"
             local service="$3"
-            local tmp out rev
-            tmp="$(mktemp)"
+            local src register_tmp out rev
+            src="$(mktemp)"
+            register_tmp="$(mktemp)"
             aws ecs describe-task-definition \
               --task-definition "$family" \
               --region "${AWS_REGION}" \
               --query 'taskDefinition' \
-              --output json > "${tmp}"
+              --output json > "${src}"
 
-            local register_json
-            register_json="$(jq --arg IMG "$full_image" \
+            jq --arg IMG "$full_image" \
               'del(
                 .taskDefinitionArn,
                 .revision,
@@ -114,14 +114,18 @@ jobs:
                 .enableFaultInjection
               )
               | del(.capacityProviderStrategy)
+              | del(.launchType)
               | .containerDefinitions[0].image = $IMG
-              ' "${tmp}")"
-            rm -f "${tmp}"
+              ' "${src}" > "${register_tmp}"
+            rm -f "${src}"
 
-            out="$(echo "${register_json}" | aws ecs register-task-definition \
-              --cli-input-json file:///dev/stdin \
+            jq empty "${register_tmp}"
+            out="$(aws ecs register-task-definition \
+              --cli-input-json "file://${register_tmp}" \
               --region "${AWS_REGION}" \
               --output json)"
+            rm -f "${register_tmp}"
+
             rev="$(echo "${out}" | jq -r '[.taskDefinition.family, (.taskDefinition.revision | tostring)] | join(":")')"
 
             aws ecs update-service \
