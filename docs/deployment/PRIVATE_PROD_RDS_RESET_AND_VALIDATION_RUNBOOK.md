@@ -175,6 +175,12 @@ Reset script behavior (`prisma/seed/resetToDefault.ts`):
 
 Run from VPC-reachable environment with dashboard `DATABASE_URL` set.
 
+Prerequisite: dashboard runtime image must include reset-script deps and generated client.
+Current Dockerfile includes these for one-off ECS reset tasks:
+
+- `/app/generated` copied into runtime image
+- `/opt/prisma-cli` includes `@prisma/adapter-pg`, `pg`, `tsx`, `dotenv`, `prisma`
+
 For ECS Console one-off task command override:
 
 ```text
