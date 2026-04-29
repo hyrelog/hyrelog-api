@@ -121,17 +121,20 @@ export const archivalJob = {
             const bucket = getS3Bucket(region);
             
             // Create S3 client
-            const s3Client = new S3Client({
+            const clientConfig: any = {
               region: config.s3Region,
-              credentials: {
-                accessKeyId: config.s3AccessKeyId,
-                secretAccessKey: config.s3SecretAccessKey,
-              },
               ...(config.s3Endpoint && {
                 endpoint: config.s3Endpoint,
                 forcePathStyle: config.s3ForcePathStyle,
               }),
-            });
+            };
+            if (config.s3AccessKeyId && config.s3SecretAccessKey) {
+              clientConfig.credentials = {
+                accessKeyId: config.s3AccessKeyId,
+                secretAccessKey: config.s3SecretAccessKey,
+              };
+            }
+            const s3Client = new S3Client(clientConfig);
 
             // Upload gzipped bytes
             await s3Client.send(

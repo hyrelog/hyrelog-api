@@ -1,0 +1,48 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EcrLogin",
+      "Effect": "Allow",
+      "Action": ["ecr:GetAuthorizationToken"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EcrDescribeRepositories",
+      "Effect": "Allow",
+      "Action": ["ecr:DescribeRepositories"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EcrPushPullSpecificRepos",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:BatchGetImage",
+        "ecr:CompleteLayerUpload",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:InitiateLayerUpload",
+        "ecr:PutImage",
+        "ecr:UploadLayerPart",
+        "ecr:DescribeImages"
+      ],
+      "Resource": [
+        "arn:aws:ecr:ap-southeast-2:163436765242:repository/hyrelog-api",
+        "arn:aws:ecr:ap-southeast-2:163436765242:repository/hyrelog-worker",
+        "arn:aws:ecr:ap-southeast-2:163436765242:repository/hyrelog-dashboard"
+      ]
+    },
+    {
+      "Sid": "EcsDeployAndRead",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:UpdateService",
+        "ecs:DescribeServices",
+        "ecs:DescribeTaskDefinition",
+        "ecs:ListTasks",
+        "ecs:DescribeTasks"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

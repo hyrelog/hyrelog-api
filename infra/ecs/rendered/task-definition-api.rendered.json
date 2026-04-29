@@ -1,21 +1,32 @@
 {
-  "family": "hyrelog-worker",
+  "family": "hyrelog-api",
   "networkMode": "awsvpc",
-  "requiresCompatibilities": ["FARGATE"],
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
   "cpu": "512",
   "memory": "1024",
   "executionRoleArn": "arn:aws:iam::163436765242:role/hyrelog-prod-ecs-execution-role",
   "taskRoleArn": "arn:aws:iam::163436765242:role/hyrelog-prod-ecs-task-role",
   "containerDefinitions": [
     {
-      "name": "hyrelog-worker",
-      "image": "163436765242.dkr.ecr.ap-southeast-2.amazonaws.com/hyrelog-worker:202604282203-worker-iamonly",
+      "name": "hyrelog-api",
+      "image": "163436765242.dkr.ecr.ap-southeast-2.amazonaws.com/hyrelog-api:202604280658-c4a2baa",
       "essential": true,
-      "command": ["node", "dist/index.js"],
+      "portMappings": [
+        {
+          "containerPort": 3000,
+          "protocol": "tcp"
+        }
+      ],
       "environment": [
         {
           "name": "NODE_ENV",
           "value": "production"
+        },
+        {
+          "name": "PORT",
+          "value": "3000"
         },
         {
           "name": "LOG_LEVEL",
@@ -34,10 +45,6 @@
           "value": "false"
         },
         {
-          "name": "WORKER_POLL_INTERVAL_SECONDS",
-          "value": "5"
-        },
-        {
           "name": "S3_BUCKET_US",
           "value": "hyrelog-prod-events-us"
         },
@@ -54,29 +61,57 @@
           "value": "hyrelog-prod-events-au"
         },
         {
+          "name": "DASHBOARD_USAGE_URL",
+          "value": "https://app.hyrelog.com"
+        },
+        {
           "name": "DB_HOST_US",
           "value": "hyrelog-prod-api-us.cs7ic6mo2af4.us-east-1.rds.amazonaws.com"
         },
-        { "name": "DB_PORT_US", "value": "5432" },
-        { "name": "DB_NAME_US", "value": "hyrelog_us" },
+        {
+          "name": "DB_PORT_US",
+          "value": "5432"
+        },
+        {
+          "name": "DB_NAME_US",
+          "value": "hyrelog_us"
+        },
         {
           "name": "DB_HOST_EU",
           "value": "hyrelog-prod-api-eu.cdgc22yu8v5w.eu-west-1.rds.amazonaws.com"
         },
-        { "name": "DB_PORT_EU", "value": "5432" },
-        { "name": "DB_NAME_EU", "value": "hyrelog_eu" },
+        {
+          "name": "DB_PORT_EU",
+          "value": "5432"
+        },
+        {
+          "name": "DB_NAME_EU",
+          "value": "hyrelog_eu"
+        },
         {
           "name": "DB_HOST_UK",
           "value": "hyrelog-prod-api-uk.ctsyimasaugv.eu-west-2.rds.amazonaws.com"
         },
-        { "name": "DB_PORT_UK", "value": "5432" },
-        { "name": "DB_NAME_UK", "value": "hyrelog_uk" },
+        {
+          "name": "DB_PORT_UK",
+          "value": "5432"
+        },
+        {
+          "name": "DB_NAME_UK",
+          "value": "hyrelog_uk"
+        },
         {
           "name": "DB_HOST_AU",
           "value": "hyrelog-prod-api-au.c9umosqssoce.ap-southeast-2.rds.amazonaws.com"
         },
-        { "name": "DB_PORT_AU", "value": "5432" },
-        { "name": "DB_NAME_AU", "value": "hyrelog_au" }
+        {
+          "name": "DB_PORT_AU",
+          "value": "5432"
+        },
+        {
+          "name": "DB_NAME_AU",
+          "value": "hyrelog_au"
+        }
       ],
       "secrets": [
         {
@@ -112,6 +147,18 @@
           "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:rds!db-62ea06d6-f3e2-4c18-8131-94b8907d3ebe-5MN4ox:password::"
         },
         {
+          "name": "INTERNAL_TOKEN",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:hyrelog-prod/INTERNAL_TOKEN"
+        },
+        {
+          "name": "API_KEY_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:hyrelog-prod/API_KEY_SECRET"
+        },
+        {
+          "name": "DASHBOARD_SERVICE_TOKEN",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:hyrelog-prod/DASHBOARD_SERVICE_TOKEN"
+        },
+        {
           "name": "WEBHOOK_SECRET_ENCRYPTION_KEY",
           "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:hyrelog-prod/WEBHOOK_SECRET_ENCRYPTION_KEY"
         }
@@ -119,10 +166,20 @@
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
-          "awslogs-group": "/ecs/hyrelog-worker",
+          "awslogs-group": "/ecs/hyrelog-api",
           "awslogs-region": "ap-southeast-2",
           "awslogs-stream-prefix": "ecs"
         }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "node -e \"require('http').get('http://127.0.0.1:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
       }
     }
   ]

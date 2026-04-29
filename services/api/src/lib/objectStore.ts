@@ -18,11 +18,14 @@ function getS3Client(): S3Client {
 
   const clientConfig: any = {
     region: config.s3Region,
-    credentials: {
+  };
+
+  if (config.s3AccessKeyId && config.s3SecretAccessKey) {
+    clientConfig.credentials = {
       accessKeyId: config.s3AccessKeyId,
       secretAccessKey: config.s3SecretAccessKey,
-    },
-  };
+    };
+  }
 
   // MinIO configuration
   if (config.s3Endpoint) {

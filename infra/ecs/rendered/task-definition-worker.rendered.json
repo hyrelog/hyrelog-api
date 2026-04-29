@@ -1,7 +1,9 @@
 {
   "family": "hyrelog-worker",
   "networkMode": "awsvpc",
-  "requiresCompatibilities": ["FARGATE"],
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
   "cpu": "512",
   "memory": "1024",
   "executionRoleArn": "arn:aws:iam::163436765242:role/hyrelog-prod-ecs-execution-role",
@@ -9,9 +11,12 @@
   "containerDefinitions": [
     {
       "name": "hyrelog-worker",
-      "image": "163436765242.dkr.ecr.ap-southeast-2.amazonaws.com/hyrelog-worker:202604282203-worker-iamonly",
+      "image": "163436765242.dkr.ecr.ap-southeast-2.amazonaws.com/hyrelog-worker:202604280658-c4a2baa",
       "essential": true,
-      "command": ["node", "dist/index.js"],
+      "command": [
+        "node",
+        "dist/index.js"
+      ],
       "environment": [
         {
           "name": "NODE_ENV",
@@ -57,26 +62,50 @@
           "name": "DB_HOST_US",
           "value": "hyrelog-prod-api-us.cs7ic6mo2af4.us-east-1.rds.amazonaws.com"
         },
-        { "name": "DB_PORT_US", "value": "5432" },
-        { "name": "DB_NAME_US", "value": "hyrelog_us" },
+        {
+          "name": "DB_PORT_US",
+          "value": "5432"
+        },
+        {
+          "name": "DB_NAME_US",
+          "value": "hyrelog_us"
+        },
         {
           "name": "DB_HOST_EU",
           "value": "hyrelog-prod-api-eu.cdgc22yu8v5w.eu-west-1.rds.amazonaws.com"
         },
-        { "name": "DB_PORT_EU", "value": "5432" },
-        { "name": "DB_NAME_EU", "value": "hyrelog_eu" },
+        {
+          "name": "DB_PORT_EU",
+          "value": "5432"
+        },
+        {
+          "name": "DB_NAME_EU",
+          "value": "hyrelog_eu"
+        },
         {
           "name": "DB_HOST_UK",
           "value": "hyrelog-prod-api-uk.ctsyimasaugv.eu-west-2.rds.amazonaws.com"
         },
-        { "name": "DB_PORT_UK", "value": "5432" },
-        { "name": "DB_NAME_UK", "value": "hyrelog_uk" },
+        {
+          "name": "DB_PORT_UK",
+          "value": "5432"
+        },
+        {
+          "name": "DB_NAME_UK",
+          "value": "hyrelog_uk"
+        },
         {
           "name": "DB_HOST_AU",
           "value": "hyrelog-prod-api-au.c9umosqssoce.ap-southeast-2.rds.amazonaws.com"
         },
-        { "name": "DB_PORT_AU", "value": "5432" },
-        { "name": "DB_NAME_AU", "value": "hyrelog_au" }
+        {
+          "name": "DB_PORT_AU",
+          "value": "5432"
+        },
+        {
+          "name": "DB_NAME_AU",
+          "value": "hyrelog_au"
+        }
       ],
       "secrets": [
         {

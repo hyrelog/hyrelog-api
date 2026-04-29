@@ -8,9 +8,9 @@ set -euo pipefail
 DASHBOARD_URL="${DASHBOARD_URL:-https://app.hyrelog.com}"
 API_URL="${API_URL:-https://api.hyrelog.com}"
 
-code_dash=$(curl -sS -o /dev/null -w "%{http_code}" "$DASHBOARD_URL" || true)
-code_health=$(curl -sS -o /dev/null -w "%{http_code}" "$API_URL/health" || true)
-body_health=$(curl -sS "$API_URL/health" || true)
+code_dash=$(curl -sS -o /dev/null -w "%{http_code}" "$DASHBOARD_URL" 2>/dev/null || true)
+code_health=$(curl -sS -o /dev/null -w "%{http_code}" "$API_URL/health" 2>/dev/null || true)
+body_health=$(curl -sS "$API_URL/health" 2>/dev/null || true)
 
 echo "Dashboard $DASHBOARD_URL -> HTTP $code_dash"
 echo "API $API_URL/health -> HTTP $code_health"

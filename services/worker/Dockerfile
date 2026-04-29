@@ -33,5 +33,9 @@ WORKDIR /app/services/worker
 
 ENV NODE_ENV=production
 
+COPY scripts/docker/docker-entrypoint-database-url.sh /usr/local/bin/docker-entrypoint-database-url.sh
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint-database-url.sh && chmod +x /usr/local/bin/docker-entrypoint-database-url.sh
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint-database-url.sh"]
+
 # Optional: pass a job name (see worker src) for one-off tasks; else full background loop
 CMD ["node", "dist/index.js"]

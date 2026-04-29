@@ -35,5 +35,9 @@ ENV PORT=3000
 WORKDIR /app/services/api
 EXPOSE 3000
 
+COPY scripts/docker/docker-entrypoint-database-url.sh /usr/local/bin/docker-entrypoint-database-url.sh
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint-database-url.sh && chmod +x /usr/local/bin/docker-entrypoint-database-url.sh
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint-database-url.sh"]
+
 # server.ts: loadConfig reads repo-root .env in dev — in ECS inject env via task definition / secrets (no .env in image)
 CMD ["node", "dist/server.js"]

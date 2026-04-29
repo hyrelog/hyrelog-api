@@ -1,0 +1,38 @@
+; Route 53 import — BIND fragment for hyrelog.com
+; Import via: Hosted zone → Import zone file
+; Docs: https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/resource-record-sets-creating-import.html
+;
+; IMPORTANT:
+; - Verify apex A and Vercel CNAMEs still match your current hosting (Vercel dashboard) before cutover.
+; - Verify MX against Google Workspace Admin → Domains → DNS (smtp.google.com may differ from Google's standard list).
+
+$ORIGIN hyrelog.com.
+$TTL 3600
+
+; --- A ---
+hyrelog.com.     600  IN  A      216.198.79.1
+
+; --- CNAME ---
+app.hyrelog.com. 600  IN  CNAME  31c5b813e8eeda2a.vercel-dns-017.com.
+www.hyrelog.com. 600  IN  CNAME  14444721dfac3ecd.vercel-dns-017.com.
+
+; --- MX ---
+hyrelog.com.     60   IN  MX     1 smtp.google.com.
+send.hyrelog.com. 3600 IN  MX    10 feedback-smtp.ap-northeast-1.amazonses.com.
+
+; --- TXT ---
+; NOTE: TXT values are in double-quotes — semicolons inside quotes are literal (BIND master file syntax).
+_dmarc.hyrelog.com.                     3600 IN TXT "v=DMARC1; p=none;"
+hyrelog.com.                            3600 IN TXT "google-site-verification=6T04j_oc-6U6g87vRV_4DAQ0DPcEv-NT6hPjjg28wO8"
+send.hyrelog.com.                       3600 IN TXT "v=spf1 include:amazonses.com ~all"
+
+; google._domainkey — NOT IMPORTABLE HERE: Route 53 zone import only allows $ORIGIN and $TTL
+; as directives — it does NOT support BIND multi-string TXT (parentheses) or two quoted
+; fragments. Add this record manually AFTER import (see README + google-workspace-dkim-txt-value.txt).
+
+resend._domainkey.hyrelog.com.          3600 IN TXT "p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDN8yODXemcjVipYOYCswxM4ghSk2syuiaewc+uv/Iwm06+J3or+SMlAIo1r97iRhKV8or4kKuq2ZhhQF0/s98IR7E/73e37lSR9hWiYEQnO62vgsO2uJgAPAQacVwMYE0KojcC1f8MccjnQrc+WfD98YWZ275vR4wD56Trq782+wIDAQAB"
+
+; Vercel domain verification — three distinct TXT records on _vercel
+_vercel.hyrelog.com.                    600 IN TXT "vc-domain-verify=app.hyrelog.com,d7468ab48812ed7a7344,dc"
+_vercel.hyrelog.com.                    600 IN TXT "vc-domain-verify=www.hyrelog.com,e037b9a0f2adaaf7cbd5,dc"
+_vercel.hyrelog.com.                    600 IN TXT "vc-domain-verify=hyrelog.com,dbd184a40d0b62d6dc9b,dc"

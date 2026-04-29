@@ -1,7 +1,9 @@
 {
   "family": "hyrelog-dashboard",
   "networkMode": "awsvpc",
-  "requiresCompatibilities": ["FARGATE"],
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
   "cpu": "1024",
   "memory": "2048",
   "executionRoleArn": "arn:aws:iam::163436765242:role/hyrelog-prod-ecs-execution-role",
@@ -9,7 +11,7 @@
   "containerDefinitions": [
     {
       "name": "hyrelog-dashboard",
-      "image": "163436765242.dkr.ecr.ap-southeast-2.amazonaws.com/hyrelog-dashboard:202604291706-9457b38",
+      "image": "163436765242.dkr.ecr.ap-southeast-2.amazonaws.com/hyrelog-dashboard:202604280658-c4a2baa",
       "essential": true,
       "portMappings": [
         {
@@ -59,10 +61,6 @@
         {
           "name": "HYRELOG_API_KEY_SECRET",
           "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:hyrelog-prod/HYRELOG_API_KEY_SECRET"
-        },
-        {
-          "name": "RESEND_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:hyrelog-prod/RESEND_API_KEY"
         }
       ],
       "logConfiguration": {

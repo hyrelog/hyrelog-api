@@ -11,7 +11,8 @@ loadDotenv({ path: resolve(rootDir, '.env') });
 
 const RegionSchema = z.enum(['US', 'EU', 'UK', 'AU']);
 
-const ConfigSchema = z.object({
+const ConfigSchema = z
+  .object({
   nodeEnv: z.enum(['development', 'production', 'test']).default('development'),
   logLevel: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
@@ -25,9 +26,11 @@ const ConfigSchema = z.object({
   databaseUrlAu: z.string().url(),
 
   // S3 / MinIO (for archival)
+  // For AWS IAM task roles, keys are optional (SDK default credential chain).
+  // For MinIO/custom endpoint mode, keys are required.
   s3Endpoint: z.string().url().optional(),
-  s3AccessKeyId: z.string().min(1),
-  s3SecretAccessKey: z.string().min(1),
+  s3AccessKeyId: z.string().min(1).optional(),
+  s3SecretAccessKey: z.string().min(1).optional(),
   s3Region: z.string().default('us-east-1'),
   s3ForcePathStyle: z.coerce.boolean().default(false),
 
@@ -39,7 +42,25 @@ const ConfigSchema = z.object({
 
   // Worker polling interval (seconds)
   workerPollIntervalSeconds: z.coerce.number().default(5),
-});
+})
+  .superRefine((cfg, ctx) => {
+    if (cfg.s3Endpoint) {
+      if (!cfg.s3AccessKeyId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['s3AccessKeyId'],
+          message: 'Required when S3_ENDPOINT is set',
+        });
+      }
+      if (!cfg.s3SecretAccessKey) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['s3SecretAccessKey'],
+          message: 'Required when S3_ENDPOINT is set',
+        });
+      }
+    }
+  });
 
 export type Config = z.infer<typeof ConfigSchema>;
 export type Region = z.infer<typeof RegionSchema>;
