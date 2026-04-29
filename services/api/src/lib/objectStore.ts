@@ -178,10 +178,13 @@ export async function getObjectBuffer(region: Region, key: string): Promise<Buff
     }
   } else if (response.Body && typeof (response.Body as any).getReader === 'function') {
     const reader = (response.Body as ReadableStream).getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
+    let done = false;
+    while (!done) {
+      const readResult = await reader.read();
+      done = readResult.done;
+      if (!done) {
+        chunks.push(readResult.value);
+      }
     }
   } else if (response.Body && typeof (response.Body as any)[Symbol.asyncIterator] === 'function') {
     for await (const chunk of response.Body as any) {

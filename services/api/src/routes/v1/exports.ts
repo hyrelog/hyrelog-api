@@ -203,7 +203,7 @@ const exportsRoutesImpl: FastifyPluginAsync = async (fastify) => {
 
       // Determine workspace/project scope
       let workspaceId: string | undefined = authContext.workspaceId ?? undefined;
-      let projectId: string | undefined = filters?.projectId;
+      const projectId: string | undefined = filters?.projectId;
 
       // Enforce scope: workspace keys cannot specify workspaceId filter
       if (authContext.scope === 'WORKSPACE' && filters?.workspaceId) {
