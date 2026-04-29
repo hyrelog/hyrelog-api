@@ -36,6 +36,7 @@
       "Sid": "EcsDeployAndRead",
       "Effect": "Allow",
       "Action": [
+        "ecs:RegisterTaskDefinition",
         "ecs:UpdateService",
         "ecs:DescribeServices",
         "ecs:DescribeTaskDefinition",
@@ -43,6 +44,20 @@
         "ecs:DescribeTasks"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "PassRoleForEcsTaskDefinitions",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": [
+        "arn:aws:iam::163436765242:role/hyrelog-prod-ecs-execution-role",
+        "arn:aws:iam::163436765242:role/hyrelog-prod-ecs-task-role"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "ecs-tasks.amazonaws.com"
+        }
+      }
     }
   ]
 }

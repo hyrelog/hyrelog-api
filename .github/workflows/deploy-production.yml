@@ -74,43 +74,92 @@ jobs:
         env:
           ECR_WORKER: ${{ secrets.ECR_WORKER_REPOSITORY }}
 
-      - name: Deploy API service (new image)
-        run: |
-          set -euo pipefail
-          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_API" --force-new-deployment
+      # Pinned task definition images (e.g. ...:20260428-...-iamonly) are not updated by
+      # --force-new-deployment; register a new revision with the SHA tag CI just pushed.
+      - name: Register task definitions and deploy API + Worker
         env:
+          ECR_API: ${{ secrets.ECR_API_REPOSITORY }}
+          ECR_WORKER: ${{ secrets.ECR_WORKER_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
           ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
           ECS_SERVICE_API: ${{ secrets.ECS_SERVICE_API }}
-
-      - name: Deploy Worker service (new image)
+          ECS_SERVICE_WORKER: ${{ secrets.ECS_SERVICE_WORKER }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
           set -euo pipefail
-          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_WORKER" --force-new-deployment
-        env:
-          ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
-          ECS_SERVICE_WORKER: ${{ secrets.ECS_SERVICE_WORKER }}
+          register_and_deploy() {
+            local family="$1"
+            local full_image="$2"
+            local service="$3"
+            local tmp out rev
+            tmp="$(mktemp)"
+            aws ecs describe-task-definition \
+              --task-definition "$family" \
+              --region "${AWS_REGION}" \
+              --query 'taskDefinition' \
+              --output json > "${tmp}"
+
+            local register_json
+            register_json="$(jq --arg IMG "$full_image" \
+              'del(
+                .taskDefinitionArn,
+                .revision,
+                .status,
+                .compatibilities,
+                .registeredAt,
+                .registeredBy,
+                .requiresAttributes,
+                .tags,
+                .deregisteredAt,
+                .enableFaultInjection
+              )
+              | del(.capacityProviderStrategy)
+              | .containerDefinitions[0].image = $IMG
+              ' "${tmp}")"
+            rm -f "${tmp}"
+
+            out="$(echo "${register_json}" | aws ecs register-task-definition \
+              --cli-input-json file:///dev/stdin \
+              --region "${AWS_REGION}" \
+              --output json)"
+            rev="$(echo "${out}" | jq -r '[.taskDefinition.family, (.taskDefinition.revision | tostring)] | join(":")')"
+
+            aws ecs update-service \
+              --cluster "${ECS_CLUSTER}" \
+              --service "${service}" \
+              --task-definition "${rev}" \
+              --region "${AWS_REGION}" \
+              --force-new-deployment \
+              --no-cli-pager
+          }
+
+          register_and_deploy "hyrelog-api" "${ECR_API}:${IMAGE_TAG}" "${ECS_SERVICE_API}"
+          register_and_deploy "hyrelog-worker" "${ECR_WORKER}:${IMAGE_TAG}" "${ECS_SERVICE_WORKER}"
 
       - name: Wait for API service stability
         run: |
           set -euo pipefail
-          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_API"
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_API" --region "$AWS_REGION"
         env:
           ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
           ECS_SERVICE_API: ${{ secrets.ECS_SERVICE_API }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
 
       - name: Wait for Worker service stability
         run: |
           set -euo pipefail
-          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_WORKER"
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_WORKER" --region "$AWS_REGION"
         env:
           ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
           ECS_SERVICE_WORKER: ${{ secrets.ECS_SERVICE_WORKER }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
 
       - name: On failure — recent ECS events (no secrets)
         if: failure()
         run: |
-          aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_API" "$ECS_SERVICE_WORKER" --query 'services[*].events[:5]' --output json || true
+          aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_API" "$ECS_SERVICE_WORKER" --region "$AWS_REGION" --query 'services[*].events[:5]' --output json || true
         env:
           ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
           ECS_SERVICE_API: ${{ secrets.ECS_SERVICE_API }}
           ECS_SERVICE_WORKER: ${{ secrets.ECS_SERVICE_WORKER }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}

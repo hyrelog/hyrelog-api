@@ -153,6 +153,8 @@ Note the **revision number** printed (second column), e.g. `9`. The full ARN fam
 
 Optional: export `REV` directly from latest registered dashboard task definition:
 
+**Git Bash:** do not paste placeholders like `<paste-arn-from-above>` literally — in bash, `<word>` is **stdin redirection** (`No such file or directory`). Use the real ARN (for example `arn:aws:ecs:ap-southeast-2:163436765242:task-definition/hyrelog-dashboard:11`) or the family name `hyrelog-dashboard` to mean “latest”.
+
 ```bash
 export PRIMARY_REGION=ap-southeast-2
 export AWS_DEFAULT_REGION=ap-southeast-2

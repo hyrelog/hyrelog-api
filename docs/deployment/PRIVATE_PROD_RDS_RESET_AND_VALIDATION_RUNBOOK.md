@@ -181,11 +181,21 @@ Current Dockerfile includes these for one-off ECS reset tasks:
 - `/app/generated` copied into runtime image
 - `/opt/prisma-cli` includes `@prisma/adapter-pg`, `pg`, `tsx`, `dotenv`, `prisma`
 
-For ECS Console one-off task command override:
+For ECS Console one-off task command override, use **`bash -c`** (not `bash -lc`: login shells clobber PATH and broke Prisma/`npx`). Export `NODE_PATH` and call `tsx` by full path under `/opt/prisma-cli` so `@prisma/adapter-pg` always resolves:
 
 ```text
-bash,-lc,set -euo pipefail; cd /app; npx tsx prisma/seed/resetToDefault.ts
+bash,-c,set -euo pipefail; export NODE_PATH=/opt/prisma-cli/node_modules NODE_EXTRA_CA_CERTS=/etc/ssl/certs/aws-rds-global-bundle.pem; cd /app && /opt/prisma-cli/node_modules/.bin/tsx prisma/seed/resetToDefault.ts
 ```
+
+Prefer the repo script so you do not hand-type overrides (same subnets/SGs/cluster as migrations):
+
+```bash
+PRIMARY_REGION=ap-southeast-2 ECS_CLUSTER=hyrelog-prod-ecs \
+  ECS_SUBNET_IDS='subnet-a,subnet-b' ECS_SECURITY_GROUP_IDS='sg-xxx' \
+  bash scripts/deployment/run-dashboard-reset-ecs-task.sh
+```
+
+**Git Bash trap:** `<paste-arn-from-above>` is **not** a placeholder — in bash `<...>` opens file redirection (`No such file or directory`). Use the real ARN, or `$()` / a variable instead.
 
 Expected result: tenant/auth data cleared; reference data + plans + add-ons reseeded.
 

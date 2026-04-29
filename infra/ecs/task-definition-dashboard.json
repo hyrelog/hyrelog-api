@@ -41,6 +41,14 @@
         {
           "name": "BETTER_AUTH_URL",
           "value": "https://app.hyrelog.com"
+        },
+        {
+          "name": "NODE_PATH",
+          "value": "/opt/prisma-cli/node_modules"
+        },
+        {
+          "name": "NODE_EXTRA_CA_CERTS",
+          "value": "/etc/ssl/certs/aws-rds-global-bundle.pem"
         }
       ],
       "secrets": [
