@@ -19,6 +19,7 @@ import {
 import { generateWebhookSecret, hashWebhookSecret } from '../../lib/webhookSigning.js';
 import { encryptWebhookSecret } from '../../lib/webhookEncryption.js';
 import { getRegionRouter } from '../../lib/regionRouter.js';
+import { loadConfig } from '../../lib/config.js';
 import { exportsRoutes } from '../v1/exports.js';
 import { webhooksRoutes } from '../v1/webhooks.js';
 import { eventsRoutes } from '../v1/events.js';
@@ -199,11 +200,13 @@ export const companyRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      const freePlan = await prisma.plan.findFirst({
-        where: { planTier: 'FREE', planType: 'STANDARD', isActive: true },
+      const provisionTier = loadConfig().defaultDashboardProvisionPlanTier;
+
+      const provisionPlan = await prisma.plan.findFirst({
+        where: { planTier: provisionTier, planType: 'STANDARD', isActive: true },
       });
-      if (!freePlan) {
-        logger.error({ dataRegion }, 'Dashboard: No FREE plan found in region');
+      if (!provisionPlan) {
+        logger.error({ dataRegion, provisionTier }, 'Dashboard: No plan row for provisioning tier');
         return reply.code(500).send({ error: 'Plan configuration missing', code: 'INTERNAL_ERROR' });
       }
 
@@ -213,8 +216,8 @@ export const companyRoutes: FastifyPluginAsync = async (fastify) => {
           slug,
           name,
           dataRegion,
-          planId: freePlan.id,
-          planTier: 'FREE',
+          planId: provisionPlan.id,
+          planTier: provisionTier,
           billingStatus: 'ACTIVE',
         },
       });
@@ -699,12 +702,12 @@ export const companyRoutes: FastifyPluginAsync = async (fastify) => {
       requireCompanyFeature(
         { planTier: company.planTier, planOverrides: company.planOverrides as any },
         'webhooksEnabled',
-        'GROWTH'
+        'PRO'
       );
     } catch (error: any) {
       if (error instanceof PlanRestrictionError) {
         return reply.code(403).send({
-          error: error.message || 'Webhooks require Growth plan or higher',
+          error: error.message || 'Webhooks require a Pro plan or higher',
           code: 'PLAN_RESTRICTED',
         });
       }
@@ -734,7 +737,7 @@ export const companyRoutes: FastifyPluginAsync = async (fastify) => {
     });
     const newCount = existingWebhooks + 1;
     try {
-      requireCompanyLimit(company, 'maxWebhooks', newCount, 'GROWTH');
+      requireCompanyLimit(company, 'maxWebhooks', newCount, 'PRO');
     } catch (error: any) {
       if (error instanceof PlanRestrictionError) {
         const limit = getCompanyLimit(company, 'maxWebhooks');

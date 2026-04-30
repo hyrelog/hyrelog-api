@@ -5,7 +5,7 @@
  * All plan-related logic should flow through this module.
  * 
  * Supports:
- * - Base plan configurations (FREE, STARTER, GROWTH, ENTERPRISE)
+ * - Base plan configurations (FREE, STARTER, PRO, BUSINESS, ENTERPRISE)
  * - Custom enterprise plans via planOverrides (JSON field on Company)
  * - Runtime plan limit changes (edit PLAN_CONFIGS and restart server)
  */
@@ -47,7 +47,7 @@ const PLAN_CONFIGS: Record<PlanTier, PlanConfig> = {
     maxExportRows: BigInt(10_000),
     hotRetentionDays: 7,
     allowCustomCategories: false,
-    monthlyEventLimit: 1_000,
+    monthlyEventLimit: 50_000,
     monthlyExportLimit: 0,
   },
   STARTER: {
@@ -58,24 +58,36 @@ const PLAN_CONFIGS: Record<PlanTier, PlanConfig> = {
     hotRetentionDays: 30,
     archiveRetentionDays: 180,
     allowCustomCategories: true,
-    monthlyEventLimit: 100_000,
+    monthlyEventLimit: 500_000,
     monthlyExportLimit: 10,
   },
-  GROWTH: {
+  PRO: {
     webhooksEnabled: true,
-    maxWebhooks: 3,
+    maxWebhooks: 5,
     streamingExportsEnabled: true,
-    maxExportRows: BigInt(1_000_000),
+    maxExportRows: BigInt(3_000_000),
     hotRetentionDays: 90,
     archiveRetentionDays: 365,
     coldArchiveAfterDays: 365,
     allowCustomCategories: true,
-    monthlyEventLimit: 1_000_000,
-    monthlyExportLimit: 50,
+    monthlyEventLimit: 5_000_000,
+    monthlyExportLimit: 40,
+  },
+  BUSINESS: {
+    webhooksEnabled: true,
+    maxWebhooks: 15,
+    streamingExportsEnabled: true,
+    maxExportRows: BigInt(12_000_000),
+    hotRetentionDays: 365,
+    archiveRetentionDays: 1825,
+    coldArchiveAfterDays: 365,
+    allowCustomCategories: true,
+    monthlyEventLimit: 25_000_000,
+    monthlyExportLimit: 120,
   },
   ENTERPRISE: {
     webhooksEnabled: true,
-    maxWebhooks: 20,
+    maxWebhooks: 50,
     streamingExportsEnabled: true,
     maxExportRows: BigInt('999999999999'),
     hotRetentionDays: 180,

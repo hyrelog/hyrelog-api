@@ -16,7 +16,7 @@ import { loadConfig, getDatabaseUrl } from '../src/lib/config.js';
  * 
  * Prints plaintext keys to console (shown only once)
  * 
- * Set SEED_PLAN_TIER=GROWTH or SEED_PLAN_TIER=ENTERPRISE to test webhooks
+ * Set SEED_PLAN_TIER=PRO|BUSINESS|ENTERPRISE to test webhooks and higher limits
  */
 async function seed() {
   const config = loadConfig();
@@ -100,7 +100,7 @@ async function seed() {
 
     console.log('📦 Creating standard plans...\n');
 
-    // Create standard plans (FREE, STARTER, GROWTH, ENTERPRISE)
+    // Create standard plans (FREE, STARTER, PRO, BUSINESS, ENTERPRISE)
     const freePlan = await prisma.plan.create({
       data: {
         name: 'Free',
@@ -109,10 +109,10 @@ async function seed() {
         webhooksEnabled: false,
         maxWebhooks: 0,
         streamingExportsEnabled: false,
-        maxExportRows: BigInt(10000), // Use BigInt consistently
+        maxExportRows: BigInt(10000),
         hotRetentionDays: 7,
         allowCustomCategories: false,
-        isDefault: true, // Default plan for new companies
+        isDefault: true, // Default tier row in DB; new signups/provision use BUSINESS via app + env
         description: 'Free plan with basic features',
       },
     });
@@ -126,7 +126,7 @@ async function seed() {
         webhooksEnabled: false,
         maxWebhooks: 0,
         streamingExportsEnabled: true,
-        maxExportRows: BigInt(250000), // Use BigInt consistently
+        maxExportRows: BigInt(250000),
         hotRetentionDays: 30,
         archiveRetentionDays: 180,
         allowCustomCategories: true,
@@ -135,23 +135,41 @@ async function seed() {
     });
     console.log(`✅ Created plan: ${starterPlan.name} (${starterPlan.id})`);
 
-    const growthPlan = await prisma.plan.create({
+    const proPlan = await prisma.plan.create({
       data: {
-        name: 'Growth',
-        planTier: 'GROWTH',
+        name: 'Pro',
+        planTier: 'PRO',
         planType: 'STANDARD',
         webhooksEnabled: true,
-        maxWebhooks: 3,
+        maxWebhooks: 5,
         streamingExportsEnabled: true,
-        maxExportRows: BigInt(1000000), // Use BigInt consistently
+        maxExportRows: BigInt(3_000_000),
         hotRetentionDays: 90,
         archiveRetentionDays: 365,
         coldArchiveAfterDays: 365,
         allowCustomCategories: true,
-        description: 'Growth plan with webhooks and extended retention',
+        description: 'Pro plan — webhooks, exports, extended retention',
       },
     });
-    console.log(`✅ Created plan: ${growthPlan.name} (${growthPlan.id})`);
+    console.log(`✅ Created plan: ${proPlan.name} (${proPlan.id})`);
+
+    const businessPlan = await prisma.plan.create({
+      data: {
+        name: 'Business',
+        planTier: 'BUSINESS',
+        planType: 'STANDARD',
+        webhooksEnabled: true,
+        maxWebhooks: 15,
+        streamingExportsEnabled: true,
+        maxExportRows: BigInt(12_000_000),
+        hotRetentionDays: 365,
+        archiveRetentionDays: 1825,
+        coldArchiveAfterDays: 365,
+        allowCustomCategories: true,
+        description: 'Business plan — higher limits and retention',
+      },
+    });
+    console.log(`✅ Created plan: ${businessPlan.name} (${businessPlan.id})`);
 
     const enterprisePlan = await prisma.plan.create({
       data: {
@@ -159,11 +177,11 @@ async function seed() {
         planTier: 'ENTERPRISE',
         planType: 'STANDARD',
         webhooksEnabled: true,
-        maxWebhooks: 20,
+        maxWebhooks: 50,
         streamingExportsEnabled: true,
-        maxExportRows: BigInt('999999999999'), // Effectively unlimited, safe as BigInt
+        maxExportRows: BigInt('999999999999'),
         hotRetentionDays: 180,
-        archiveRetentionDays: 2555, // ~7 years
+        archiveRetentionDays: 2555,
         coldArchiveAfterDays: 365,
         allowCustomCategories: true,
         description: 'Enterprise plan with maximum limits',
@@ -172,16 +190,24 @@ async function seed() {
     console.log(`✅ Created plan: ${enterprisePlan.name} (${enterprisePlan.id})\n`);
 
     // Determine plan tier from environment (default: FREE)
-    const planTier = (process.env.SEED_PLAN_TIER || 'FREE').toUpperCase() as 'FREE' | 'STARTER' | 'GROWTH' | 'ENTERPRISE';
-    if (!['FREE', 'STARTER', 'GROWTH', 'ENTERPRISE'].includes(planTier)) {
-      throw new Error(`Invalid SEED_PLAN_TIER: ${planTier}. Must be FREE, STARTER, GROWTH, or ENTERPRISE`);
+    const planTier = (process.env.SEED_PLAN_TIER || 'FREE').toUpperCase() as
+      | 'FREE'
+      | 'STARTER'
+      | 'PRO'
+      | 'BUSINESS'
+      | 'ENTERPRISE';
+    if (!['FREE', 'STARTER', 'PRO', 'BUSINESS', 'ENTERPRISE'].includes(planTier)) {
+      throw new Error(
+        `Invalid SEED_PLAN_TIER: ${planTier}. Must be FREE, STARTER, PRO, BUSINESS, or ENTERPRISE`
+      );
     }
 
     // Get the plan for the selected tier
     const planMap = {
       FREE: freePlan,
       STARTER: starterPlan,
-      GROWTH: growthPlan,
+      PRO: proPlan,
+      BUSINESS: businessPlan,
       ENTERPRISE: enterprisePlan,
     };
     const selectedPlan = planMap[planTier];
@@ -296,14 +322,14 @@ async function seed() {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     
     // Plan-specific feature hints
-    if (company.planTier === 'GROWTH' || company.planTier === 'ENTERPRISE') {
+    if (['PRO', 'BUSINESS', 'ENTERPRISE'].includes(company.planTier)) {
       console.log('💡 Webhooks are enabled for this plan tier!');
       console.log('   Create a webhook endpoint to receive event notifications.\n');
     } else if (company.planTier === 'STARTER') {
       console.log('💡 Streaming exports are enabled for this plan tier!');
-      console.log('   Webhooks require Growth plan or higher.\n');
+      console.log('   Webhooks require Pro plan or higher.\n');
     } else {
-      console.log('💡 Set SEED_PLAN_TIER=STARTER|GROWTH|ENTERPRISE to test paid features.\n');
+      console.log('💡 Set SEED_PLAN_TIER=STARTER|PRO|BUSINESS|ENTERPRISE to test paid features.\n');
     }
   } catch (error) {
     console.error('❌ Seeding failed:', error);

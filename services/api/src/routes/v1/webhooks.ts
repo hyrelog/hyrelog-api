@@ -90,7 +90,7 @@ const webhooksRoutesImpl: FastifyPluginAsync = async (fastify) => {
     schema: {
       tags: ['Webhooks'],
       summary: 'Create webhook',
-      description: 'Create a webhook endpoint for a workspace. Requires company-scoped API key and IP allowlist. Webhooks require Growth plan or higher.',
+      description: 'Create a webhook endpoint for a workspace. Requires company-scoped API key and IP allowlist. Webhooks require Pro plan or higher.',
       params: { type: 'object', properties: { workspaceId: { type: 'string', format: 'uuid' } }, required: ['workspaceId'] },
       body: createWebhookBodySchema,
       response: {
@@ -225,11 +225,11 @@ const webhooksRoutesImpl: FastifyPluginAsync = async (fastify) => {
     }
 
     try {
-      requireCompanyFeature(company, 'webhooksEnabled', 'GROWTH');
+      requireCompanyFeature(company, 'webhooksEnabled', 'PRO');
     } catch (error) {
       if (error instanceof PlanRestrictionError) {
         return reply.code(403).send({
-          error: 'Webhooks require a Growth plan or higher',
+          error: 'Webhooks require a Pro plan or higher',
           code: 'PLAN_RESTRICTED',
         });
       }
@@ -248,7 +248,7 @@ const webhooksRoutesImpl: FastifyPluginAsync = async (fastify) => {
     // Check if adding one more webhook would exceed the limit
     const newCount = existingWebhooks + 1;
     try {
-      requireCompanyLimit(company, 'maxWebhooks', newCount, 'GROWTH');
+      requireCompanyLimit(company, 'maxWebhooks', newCount, 'PRO');
     } catch (error) {
       if (error instanceof PlanRestrictionError) {
         const limit = getCompanyLimit(company, 'maxWebhooks');

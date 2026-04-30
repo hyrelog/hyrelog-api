@@ -1,6 +1,6 @@
 /**
  * Plan Helpers for Worker
- * 
+ *
  * Provides helpers to load Company with plan and resolve effective plan config.
  * Uses database-driven plans (Company.plan + Company.planOverrides).
  */
@@ -24,7 +24,7 @@ export interface PlanConfig {
   monthlyExportLimit: number;
 }
 
-type WorkerPlanTier = 'FREE' | 'STARTER' | 'GROWTH' | 'ENTERPRISE';
+type WorkerPlanTier = 'FREE' | 'STARTER' | 'PRO' | 'BUSINESS' | 'ENTERPRISE';
 
 const PLAN_CONFIGS: Record<WorkerPlanTier, PlanConfig> = {
   FREE: {
@@ -34,7 +34,7 @@ const PLAN_CONFIGS: Record<WorkerPlanTier, PlanConfig> = {
     maxExportRows: BigInt(10_000),
     hotRetentionDays: 7,
     allowCustomCategories: false,
-    monthlyEventLimit: 1_000,
+    monthlyEventLimit: 50_000,
     monthlyExportLimit: 0,
   },
   STARTER: {
@@ -45,24 +45,36 @@ const PLAN_CONFIGS: Record<WorkerPlanTier, PlanConfig> = {
     hotRetentionDays: 30,
     archiveRetentionDays: 180,
     allowCustomCategories: true,
-    monthlyEventLimit: 100_000,
+    monthlyEventLimit: 500_000,
     monthlyExportLimit: 10,
   },
-  GROWTH: {
+  PRO: {
     webhooksEnabled: true,
-    maxWebhooks: 3,
+    maxWebhooks: 5,
     streamingExportsEnabled: true,
-    maxExportRows: BigInt(1_000_000),
+    maxExportRows: BigInt(3_000_000),
     hotRetentionDays: 90,
     archiveRetentionDays: 365,
     coldArchiveAfterDays: 365,
     allowCustomCategories: true,
-    monthlyEventLimit: 1_000_000,
-    monthlyExportLimit: 50,
+    monthlyEventLimit: 5_000_000,
+    monthlyExportLimit: 40,
+  },
+  BUSINESS: {
+    webhooksEnabled: true,
+    maxWebhooks: 15,
+    streamingExportsEnabled: true,
+    maxExportRows: BigInt(12_000_000),
+    hotRetentionDays: 365,
+    archiveRetentionDays: 1825,
+    coldArchiveAfterDays: 365,
+    allowCustomCategories: true,
+    monthlyEventLimit: 25_000_000,
+    monthlyExportLimit: 120,
   },
   ENTERPRISE: {
     webhooksEnabled: true,
-    maxWebhooks: 20,
+    maxWebhooks: 50,
     streamingExportsEnabled: true,
     maxExportRows: BigInt('999999999999'),
     hotRetentionDays: 180,
@@ -77,9 +89,8 @@ const PLAN_CONFIGS: Record<WorkerPlanTier, PlanConfig> = {
 function getCompanyPlanConfig(company: { planTier: string; planOverrides?: any }): PlanConfig {
   const tier = (company.planTier || 'FREE').toUpperCase() as WorkerPlanTier;
   const base = PLAN_CONFIGS[tier] ?? PLAN_CONFIGS.FREE;
-  const overrides = company.planOverrides && typeof company.planOverrides === 'object'
-    ? company.planOverrides
-    : {};
+  const overrides =
+    company.planOverrides && typeof company.planOverrides === 'object' ? company.planOverrides : {};
 
   const merged: any = { ...base, ...overrides };
 
@@ -136,11 +147,6 @@ export async function loadCompanyWithPlan(
  * Get effective plan config for a company
  * Merges plan + planOverrides
  */
-export function getEffectivePlanConfig(company: {
-  planTier: string;
-  planOverrides: any;
-}): PlanConfig {
-  // Use the plan engine helper which handles merging
+export function getEffectivePlanConfig(company: { planTier: string; planOverrides: any }): PlanConfig {
   return getCompanyPlanConfig(company as any);
 }
-

@@ -37,6 +37,10 @@
           "value": "US"
         },
         {
+          "name": "DEFAULT_DASHBOARD_PROVISION_PLAN_TIER",
+          "value": "BUSINESS"
+        },
+        {
           "name": "S3_REGION",
           "value": "ap-southeast-2"
         },

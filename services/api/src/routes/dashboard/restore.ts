@@ -8,15 +8,11 @@ import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { getLogger } from '../../lib/logger.js';
 import { logDashboardAction } from '../../lib/auditLog.js';
-import { getCompanyPlanConfig, PlanRestrictionError } from '../../lib/plans.js';
 import {
   estimateRestoreCost,
   estimateCompletionTime,
   getDefaultRestoreDays,
-  initiateRestore,
-  checkRestoreStatus,
 } from '../../lib/glacierRestore.js';
-import { getS3Bucket } from '../../lib/config.js';
 
 const logger = getLogger();
 
@@ -59,27 +55,22 @@ export const restoreRoutes: FastifyPluginAsync = async (fastify) => {
       // Get company and check plan restrictions
       const company = await prisma.company.findUnique({
         where: { id: companyId },
-        include: { plan: true },
+        select: { id: true, planTier: true, planOverrides: true },
       });
 
       if (!company) {
         return reply.code(404).send({ error: 'Company not found', code: 'NOT_FOUND' });
       }
 
-      const planConfig = getCompanyPlanConfig({
-        planTier: company.planTier,
-        planOverrides: company.planOverrides as any,
-      });
-
       // Check plan restrictions
       if (company.planTier === 'FREE' || company.planTier === 'STARTER') {
         return reply.code(403).send({
-          error: 'Restore requests require GROWTH or ENTERPRISE plan',
+          error: 'Restore requests require a Pro, Business, or Enterprise plan',
           code: 'PLAN_RESTRICTED',
         });
       }
 
-      if (company.planTier === 'GROWTH' && tier === 'EXPEDITED') {
+      if (tier === 'EXPEDITED' && company.planTier !== 'ENTERPRISE') {
         return reply.code(403).send({
           error: 'EXPEDITED restore tier requires ENTERPRISE plan',
           code: 'PLAN_RESTRICTED',

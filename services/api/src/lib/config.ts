@@ -14,6 +14,9 @@ loadDotenv({ path: resolve(rootDir, '.env') });
 
 const RegionSchema = z.enum(['US', 'EU', 'UK', 'AU']);
 
+/** API plan tier when dashboard provisions a company (aligned with dashboard plan codes). */
+const DashboardProvisionPlanTierSchema = z.enum(['FREE', 'STARTER', 'PRO', 'BUSINESS', 'ENTERPRISE']);
+
 const ConfigSchema = z
   .object({
   // Server
@@ -64,6 +67,17 @@ const ConfigSchema = z
 
   // Dashboard URL for usage callback (API calls Dashboard to get/increment usage)
   dashboardUsageUrl: z.string().url().optional(),
+
+  /**
+   * Plan tier for new API companies created via POST /dashboard/companies.
+   * Env: DEFAULT_DASHBOARD_PROVISION_PLAN_TIER — when unset, defaults to BUSINESS for alpha / self-serve signup parity.
+   */
+  defaultDashboardProvisionPlanTier: z.preprocess((val: unknown) => {
+    const allowed = ['FREE', 'STARTER', 'PRO', 'BUSINESS', 'ENTERPRISE'] as const;
+    const s = String(val ?? '').trim().toUpperCase();
+    if (!s) return 'BUSINESS';
+    return (allowed as readonly string[]).includes(s) ? s : 'BUSINESS';
+  }, DashboardProvisionPlanTierSchema),
 })
   .superRefine((cfg, ctx) => {
     if (cfg.s3Endpoint) {
@@ -120,6 +134,7 @@ export function loadConfig(): Config {
     apiKeySecret: process.env.API_KEY_SECRET,
     dashboardServiceToken: process.env.DASHBOARD_SERVICE_TOKEN,
     dashboardUsageUrl: process.env.HYRELOG_DASHBOARD_URL || process.env.DASHBOARD_USAGE_URL,
+    defaultDashboardProvisionPlanTier: process.env.DEFAULT_DASHBOARD_PROVISION_PLAN_TIER,
   };
 
   const result = ConfigSchema.safeParse(raw);

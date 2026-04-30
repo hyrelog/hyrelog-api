@@ -94,7 +94,7 @@ async function reset() {
         maxExportRows: BigInt(10000),
         hotRetentionDays: 7,
         allowCustomCategories: false,
-        isDefault: true,
+        isDefault: true, // API catalog default row; provisioning uses BUSINESS via env
         description: 'Free plan with basic features',
       },
     });
@@ -115,18 +115,34 @@ async function reset() {
     });
     await prisma.plan.create({
       data: {
-        name: 'Growth',
-        planTier: 'GROWTH',
+        name: 'Pro',
+        planTier: 'PRO',
         planType: 'STANDARD',
         webhooksEnabled: true,
-        maxWebhooks: 3,
+        maxWebhooks: 5,
         streamingExportsEnabled: true,
-        maxExportRows: BigInt(1000000),
+        maxExportRows: BigInt(3_000_000),
         hotRetentionDays: 90,
         archiveRetentionDays: 365,
         coldArchiveAfterDays: 365,
         allowCustomCategories: true,
-        description: 'Growth plan with webhooks and extended retention',
+        description: 'Pro plan — webhooks, exports, extended retention',
+      },
+    });
+    await prisma.plan.create({
+      data: {
+        name: 'Business',
+        planTier: 'BUSINESS',
+        planType: 'STANDARD',
+        webhooksEnabled: true,
+        maxWebhooks: 15,
+        streamingExportsEnabled: true,
+        maxExportRows: BigInt(12_000_000),
+        hotRetentionDays: 365,
+        archiveRetentionDays: 1825,
+        coldArchiveAfterDays: 365,
+        allowCustomCategories: true,
+        description: 'Business plan — higher limits and retention',
       },
     });
     await prisma.plan.create({
@@ -135,7 +151,7 @@ async function reset() {
         planTier: 'ENTERPRISE',
         planType: 'STANDARD',
         webhooksEnabled: true,
-        maxWebhooks: 20,
+        maxWebhooks: 50,
         streamingExportsEnabled: true,
         maxExportRows: BigInt('999999999999'),
         hotRetentionDays: 180,

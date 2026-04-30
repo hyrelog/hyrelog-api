@@ -722,10 +722,11 @@ All responses include:
 
 ### Phase 1 Postman Collection
 
-Import the Postman collection from `postman/` directory:
+Import the Postman collection from **`hyrelog-docs/postman/`** (or copy into this repo):
 
 - `HyreLog API.postman_collection.json` - Updated with Phase 1 endpoints
-- `HyreLog Local.postman_environment.json` - Environment variables
+- `HyreLog Local.postman_environment.json` - Local environment variables (`http://localhost:3000`)
+- `HyreLog Production.postman_environment.json` - Production (`https://api.hyrelog.com`), same variables; set tokens/keys from live secrets
 
 ## Phase 3 - Exports + Retention + Archival
 

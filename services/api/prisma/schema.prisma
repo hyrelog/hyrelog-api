@@ -64,12 +64,13 @@ enum ColdStorageProvider {
 enum PlanTier {
   FREE
   STARTER
-  GROWTH
+  PRO
+  BUSINESS
   ENTERPRISE
 }
 
 enum PlanType {
-  STANDARD  // Pre-defined plans (FREE, STARTER, GROWTH, ENTERPRISE)
+  STANDARD  // Pre-defined plans (FREE, STARTER, PRO, BUSINESS, ENTERPRISE)
   CUSTOM   // Custom plans created by admin
 }
 
@@ -139,8 +140,8 @@ enum GlacierRestoreTier {
 
 model Plan {
   id        String   @id @default(uuid())
-  name      String   @unique // e.g., "Free", "Starter", "Growth", "Enterprise", "Acme Corp Custom"
-  planTier  PlanTier // For standard plans (FREE, STARTER, GROWTH, ENTERPRISE)
+  name      String   @unique // e.g., "Free", "Starter", "Pro", "Business", "Enterprise", "Acme Corp Custom"
+  planTier  PlanTier // For standard plans (FREE, STARTER, PRO, BUSINESS, ENTERPRISE)
   planType  PlanType @default(STANDARD) // STANDARD or CUSTOM
   
   // Plan configuration (stored in DB for admin dashboard management)
@@ -185,7 +186,7 @@ model Company {
   
   // Plan assignment (database-driven)
   planId     String   // References Plan (standard or custom) - required after migration
-  planTier   PlanTier @default(FREE) // For reference only, planId is source of truth
+  planTier   PlanTier @default(FREE) // Mirrors Plan.planTier; planId is source of truth
   planOverrides Json? // Per-company overrides (takes precedence over plan config)
 
   // Billing metadata (Stripe-ready)
