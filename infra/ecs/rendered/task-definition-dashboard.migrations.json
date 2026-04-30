@@ -1,0 +1,88 @@
+{
+  "family": "hyrelog-dashboard",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::163436765242:role/hyrelog-prod-ecs-execution-role",
+  "taskRoleArn": "arn:aws:iam::163436765242:role/hyrelog-prod-ecs-task-role",
+  "containerDefinitions": [
+    {
+      "name": "hyrelog-dashboard",
+      "image": "163436765242.dkr.ecr.ap-southeast-2.amazonaws.com/hyrelog-dashboard:20260430-dashboard-migrations",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 3000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "PORT",
+          "value": "3000"
+        },
+        {
+          "name": "NEXT_PUBLIC_APP_URL",
+          "value": "https://app.hyrelog.com"
+        },
+        {
+          "name": "HYRELOG_API_URL",
+          "value": "https://api.hyrelog.com"
+        },
+        {
+          "name": "NEXT_PUBLIC_API_BASE_URL",
+          "value": "https://api.hyrelog.com"
+        },
+        {
+          "name": "BETTER_AUTH_URL",
+          "value": "https://app.hyrelog.com"
+        },
+        {
+          "name": "NODE_PATH",
+          "value": "/opt/prisma-cli/node_modules"
+        },
+        {
+          "name": "NODE_EXTRA_CA_CERTS",
+          "value": "/etc/ssl/certs/aws-rds-global-bundle.pem"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:hyrelog-prod/DATABASE_URL"
+        },
+        {
+          "name": "BETTER_AUTH_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:hyrelog-prod/BETTER_AUTH_SECRET"
+        },
+        {
+          "name": "DASHBOARD_SERVICE_TOKEN",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:hyrelog-prod/DASHBOARD_SERVICE_TOKEN"
+        },
+        {
+          "name": "HYRELOG_API_KEY_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:hyrelog-prod/HYRELOG_API_KEY_SECRET"
+        },
+        {
+          "name": "RESEND_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:hyrelog-prod/RESEND_API_KEY"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/hyrelog-dashboard",
+          "awslogs-region": "ap-southeast-2",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}

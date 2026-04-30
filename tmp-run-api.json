@@ -1,0 +1,72 @@
+{
+    "tasks": [
+        {
+            "attachments": [
+                {
+                    "id": "1058826c-54b7-4d4f-892c-4a3e2c308625",
+                    "type": "ElasticNetworkInterface",
+                    "status": "PRECREATED",
+                    "details": [
+                        {
+                            "name": "subnetId",
+                            "value": "subnet-0fc7dd61fd8bfe691"
+                        }
+                    ]
+                }
+            ],
+            "attributes": [
+                {
+                    "name": "ecs.cpu-architecture",
+                    "value": "x86_64"
+                }
+            ],
+            "availabilityZone": "ap-southeast-2b",
+            "clusterArn": "arn:aws:ecs:ap-southeast-2:163436765242:cluster/hyrelog-prod-ecs",
+            "containers": [
+                {
+                    "containerArn": "arn:aws:ecs:ap-southeast-2:163436765242:container/hyrelog-prod-ecs/61fe48bf2b4843b28d4d4461da0c73f2/edb12698-11b0-440d-9a95-83364c46798d",
+                    "taskArn": "arn:aws:ecs:ap-southeast-2:163436765242:task/hyrelog-prod-ecs/61fe48bf2b4843b28d4d4461da0c73f2",
+                    "name": "hyrelog-api",
+                    "image": "163436765242.dkr.ecr.ap-southeast-2.amazonaws.com/hyrelog-api:291e94ff7d85bba0a79ae91f935080e7e50ab00b",
+                    "lastStatus": "PENDING",
+                    "networkInterfaces": [],
+                    "cpu": "0"
+                }
+            ],
+            "cpu": "512",
+            "createdAt": "2026-04-30T16:53:18.087000+10:00",
+            "desiredStatus": "RUNNING",
+            "enableExecuteCommand": false,
+            "group": "family:hyrelog-api",
+            "lastStatus": "PROVISIONING",
+            "launchType": "FARGATE",
+            "memory": "1024",
+            "overrides": {
+                "containerOverrides": [
+                    {
+                        "name": "hyrelog-api",
+                        "command": [
+                            "bash",
+                            "-c",
+                            "set -euo pipefail\ncd /app/services/api\nexport DATABASE_URL=\"$DATABASE_URL_US\"; export SEED_RESET_REGION_LABEL=US; npx --yes tsx prisma/seed-reset.ts\nexport DATABASE_URL=\"$DATABASE_URL_EU\"; export SEED_RESET_REGION_LABEL=EU; npx --yes tsx prisma/seed-reset.ts\nexport DATABASE_URL=\"$DATABASE_URL_UK\"; export SEED_RESET_REGION_LABEL=UK; npx --yes tsx prisma/seed-reset.ts\nexport DATABASE_URL=\"$DATABASE_URL_AU\"; export SEED_RESET_REGION_LABEL=AU; npx --yes tsx prisma/seed-reset.ts\necho \"API regional reset complete.\""
+                        ]
+                    }
+                ],
+                "inferenceAcceleratorOverrides": []
+            },
+            "platformVersion": "1.4.0",
+            "platformFamily": "Linux",
+            "tags": [],
+            "taskArn": "arn:aws:ecs:ap-southeast-2:163436765242:task/hyrelog-prod-ecs/61fe48bf2b4843b28d4d4461da0c73f2",
+            "taskDefinitionArn": "arn:aws:ecs:ap-southeast-2:163436765242:task-definition/hyrelog-api:10",
+            "version": 1,
+            "ephemeralStorage": {
+                "sizeInGiB": 20
+            },
+            "fargateEphemeralStorage": {
+                "sizeInGiB": 20
+            }
+        }
+    ],
+    "failures": []
+}
