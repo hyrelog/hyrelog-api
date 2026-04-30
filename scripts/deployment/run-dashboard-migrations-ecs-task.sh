@@ -12,8 +12,10 @@
 #   ECS_SECURITY_GROUP_IDS   comma-separated
 #
 # Optional:
-#   TASK_DEFINITION    default: hyrelog-dashboard — family name or family:revision
-#   CONTAINER_NAME     default: hyrelog-dashboard
+#   ECS_SERVICE_DASHBOARD  default: hyrelog-dashboard — used to resolve TASK_DEFINITION from the
+#                          running service when TASK_DEFINITION is unset or family-only (no ":").
+#   TASK_DEFINITION      pin a revision (hyrelog-dashboard:13) or full ARN; otherwise resolved from service.
+#   CONTAINER_NAME       default: hyrelog-dashboard
 #   MIGRATION_ACTION   default: deploy
 #                      one of: deploy | resolve-rolled-back | resolve-applied
 #   MIGRATION_NAME     required when MIGRATION_ACTION is resolve-rolled-back/resolve-applied
@@ -33,7 +35,8 @@ set -euo pipefail
 
 COMMAND_NAME=$(basename "${BASH_SOURCE[0]}")
 
-TASK_DEFINITION="${TASK_DEFINITION:-hyrelog-dashboard}"
+TASK_DEFINITION="${TASK_DEFINITION:-}"
+ECS_SERVICE_DASHBOARD="${ECS_SERVICE_DASHBOARD:-hyrelog-dashboard}"
 CONTAINER_NAME="${CONTAINER_NAME:-hyrelog-dashboard}"
 MIGRATION_ACTION="${MIGRATION_ACTION:-deploy}"
 MIGRATION_NAME="${MIGRATION_NAME:-}"
@@ -60,6 +63,17 @@ require_var PRIMARY_REGION
 require_var ECS_CLUSTER
 require_var ECS_SUBNET_IDS
 require_var ECS_SECURITY_GROUP_IDS
+
+if [[ -z "${TASK_DEFINITION}" ]] || [[ "${TASK_DEFINITION}" != *:* ]]; then
+  echo "${COMMAND_NAME}: resolving task definition from ECS service ${ECS_SERVICE_DASHBOARD}..."
+  TASK_DEFINITION="$(aws ecs describe-services \
+    --cluster "${ECS_CLUSTER}" \
+    --services "${ECS_SERVICE_DASHBOARD}" \
+    --region "${PRIMARY_REGION}" \
+    --query 'services[0].taskDefinition' \
+    --output text)"
+fi
+echo "${COMMAND_NAME}: using task definition: ${TASK_DEFINITION}"
 
 case "${MIGRATION_ACTION}" in
   deploy|resolve-rolled-back|resolve-applied) ;;

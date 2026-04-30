@@ -9,8 +9,12 @@
 #   ECS_SECURITY_GROUP_IDS   comma-separated
 #
 # Optional:
-#   TASK_DEFINITION    default: hyrelog-dashboard — family name or family:revision
-#   CONTAINER_NAME     default: hyrelog-dashboard
+#   ECS_SERVICE_DASHBOARD  default: hyrelog-dashboard — used to resolve TASK_DEFINITION from the
+#                          running service (same image/revision as prod). Recommended.
+#   TASK_DEFINITION      only if you want to pin a revision manually (e.g. hyrelog-dashboard:13)
+#                          or pass a full task-definition ARN. If unset or has no ":" (family only),
+#                          the script resolves from describe-services (see ECS_SERVICE_DASHBOARD).
+#   CONTAINER_NAME        default: hyrelog-dashboard
 #
 # Why not `npx tsx` / `bash -lc`:
 # - `bash -lc` resets PATH and can break Prisma/tsx resolution.
@@ -21,7 +25,8 @@ set -euo pipefail
 
 COMMAND_NAME=$(basename "${BASH_SOURCE[0]}")
 
-TASK_DEFINITION="${TASK_DEFINITION:-hyrelog-dashboard}"
+TASK_DEFINITION="${TASK_DEFINITION:-}"
+ECS_SERVICE_DASHBOARD="${ECS_SERVICE_DASHBOARD:-hyrelog-dashboard}"
 CONTAINER_NAME="${CONTAINER_NAME:-hyrelog-dashboard}"
 
 require_var() {
@@ -46,6 +51,19 @@ require_var PRIMARY_REGION
 require_var ECS_CLUSTER
 require_var ECS_SUBNET_IDS
 require_var ECS_SECURITY_GROUP_IDS
+
+# Pin one-off tasks to the same task-definition revision the service uses (e.g. :13), not an older
+# revision ECS may choose when only the family name is passed.
+if [[ -z "${TASK_DEFINITION}" ]] || [[ "${TASK_DEFINITION}" != *:* ]]; then
+  echo "${COMMAND_NAME}: resolving task definition from ECS service ${ECS_SERVICE_DASHBOARD}..."
+  TASK_DEFINITION="$(aws ecs describe-services \
+    --cluster "${ECS_CLUSTER}" \
+    --services "${ECS_SERVICE_DASHBOARD}" \
+    --region "${PRIMARY_REGION}" \
+    --query 'services[0].taskDefinition' \
+    --output text)"
+fi
+echo "${COMMAND_NAME}: using task definition: ${TASK_DEFINITION}"
 
 comma_list_to_bracket() {
   local raw="$1"
