@@ -1,3 +1,5 @@
 .env
-migrations/
+# Migrations MUST be committed and shipped in the API Docker image (see services/api/Dockerfile
+# COPY services/api/prisma). Do not add `migrations/` here — empty prisma/migrations in ECS
+# makes `prisma migrate deploy` report "No migration found" and never apply schema changes.
 
