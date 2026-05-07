@@ -30,6 +30,7 @@ const CreateWebhookSchema = z.object({
   events: z.array(z.enum(['AUDIT_EVENT_CREATED'])).optional().default(['AUDIT_EVENT_CREATED']),
   projectId: z.string().uuid().nullable().optional(), // Allow null for workspace-wide webhooks
   secretLabel: z.string().optional(),
+  customSecret: z.string().min(8).max(256).optional(),
 });
 
 const QueryDeliveriesSchema = z.object({
@@ -81,6 +82,7 @@ const createWebhookBodySchema = {
     events: { type: 'array', items: { type: 'string', enum: ['AUDIT_EVENT_CREATED'] }, description: 'Events to subscribe to; default: AUDIT_EVENT_CREATED' },
     projectId: { type: ['string', 'null'], format: 'uuid', description: 'Scope to project; null for workspace-wide' },
     secretLabel: { type: 'string', description: 'Optional label for the secret' },
+    customSecret: { type: 'string', minLength: 8, maxLength: 256, description: 'Optional custom webhook signing secret. If omitted, API generates one.' },
   },
 };
 
@@ -261,7 +263,7 @@ const webhooksRoutesImpl: FastifyPluginAsync = async (fastify) => {
     }
 
     // Generate webhook secret
-    const plaintextSecret = generateWebhookSecret();
+    const plaintextSecret = data.customSecret?.trim() ? data.customSecret.trim() : generateWebhookSecret();
     const hashedSecret = hashWebhookSecret(plaintextSecret);
     const encryptedSecret = encryptWebhookSecret(plaintextSecret);
 

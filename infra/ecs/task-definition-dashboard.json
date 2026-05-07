@@ -71,6 +71,10 @@
         {
           "name": "RESEND_API_KEY",
           "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:hyrelog-prod/RESEND_API_KEY"
+        },
+        {
+          "name": "WEBHOOK_TEST_TOKEN",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:hyrelog-prod/WEBHOOK_TEST_TOKEN"
         }
       ],
       "logConfiguration": {

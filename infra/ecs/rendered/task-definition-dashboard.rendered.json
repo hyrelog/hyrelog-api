@@ -11,7 +11,7 @@
   "containerDefinitions": [
     {
       "name": "hyrelog-dashboard",
-      "image": "163436765242.dkr.ecr.ap-southeast-2.amazonaws.com/hyrelog-dashboard:202604280658-c4a2baa",
+      "image": "163436765242.dkr.ecr.ap-southeast-2.amazonaws.com/hyrelog-dashboard:<the tag you successfully pushed>",
       "essential": true,
       "portMappings": [
         {
@@ -43,6 +43,14 @@
         {
           "name": "BETTER_AUTH_URL",
           "value": "https://app.hyrelog.com"
+        },
+        {
+          "name": "NODE_PATH",
+          "value": "/opt/prisma-cli/node_modules"
+        },
+        {
+          "name": "NODE_EXTRA_CA_CERTS",
+          "value": "/etc/ssl/certs/aws-rds-global-bundle.pem"
         }
       ],
       "secrets": [
@@ -61,6 +69,14 @@
         {
           "name": "HYRELOG_API_KEY_SECRET",
           "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:hyrelog-prod/HYRELOG_API_KEY_SECRET"
+        },
+        {
+          "name": "RESEND_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:hyrelog-prod/RESEND_API_KEY"
+        },
+        {
+          "name": "WEBHOOK_TEST_TOKEN",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:hyrelog-prod/WEBHOOK_TEST_TOKEN"
         }
       ],
       "logConfiguration": {

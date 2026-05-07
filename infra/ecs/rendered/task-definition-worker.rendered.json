@@ -11,7 +11,7 @@
   "containerDefinitions": [
     {
       "name": "hyrelog-worker",
-      "image": "163436765242.dkr.ecr.ap-southeast-2.amazonaws.com/hyrelog-worker:202604280658-c4a2baa",
+      "image": "163436765242.dkr.ecr.ap-southeast-2.amazonaws.com/hyrelog-worker:<the tag you successfully pushed>",
       "essential": true,
       "command": [
         "node",

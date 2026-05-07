@@ -61,6 +61,7 @@ const CreateDashboardWebhookSchema = z
     url: z.string().url(),
     events: z.array(z.string().min(1)).min(1).default(['AUDIT_EVENT_CREATED']),
     projectId: z.string().uuid().nullable().optional(),
+    customSecret: z.string().min(8).max(256).optional(),
   })
   .superRefine((data, ctx) => {
     const unknown = [...new Set(data.events.filter((e) => !dashboardWebhookEventNameSet.has(e)))];
@@ -683,7 +684,7 @@ export const companyRoutes: FastifyPluginAsync = async (fastify) => {
     if (!companyId) {
       return reply.code(400).send({ error: 'Missing company ID', code: 'VALIDATION_ERROR' });
     }
-    const { workspaceId, url, events, projectId } = bodyResult.data;
+    const { workspaceId, url, events, projectId, customSecret } = bodyResult.data;
     const uniqueEvents = [...new Set(events)] as Array<(typeof DASHBOARD_WEBHOOK_EVENT_NAMES)[number]>;
 
     const urlValidation = validateDashboardWebhookUrl(url);
@@ -749,7 +750,7 @@ export const companyRoutes: FastifyPluginAsync = async (fastify) => {
       throw error;
     }
 
-    const plaintextSecret = generateWebhookSecret();
+    const plaintextSecret = customSecret?.trim() ? customSecret.trim() : generateWebhookSecret();
     const hashedSecret = hashWebhookSecret(plaintextSecret);
     const encryptedSecret = encryptWebhookSecret(plaintextSecret);
 
