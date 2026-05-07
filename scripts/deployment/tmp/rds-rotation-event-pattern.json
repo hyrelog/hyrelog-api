@@ -1,0 +1,16 @@
+{
+  "source": ["aws.secretsmanager"],
+  "detail-type": ["AWS API Call via CloudTrail"],
+  "detail": {
+    "eventSource": ["secretsmanager.amazonaws.com"],
+    "eventName": ["RotateSecret"],
+    "requestParameters": {
+      "secretId": [
+        "arn:aws:secretsmanager:us-east-1:163436765242:secret:rds!db-f85d5f08-a9c5-4f04-9b1b-5ebe82af004b-YxJ40o",
+        "arn:aws:secretsmanager:eu-west-1:163436765242:secret:rds!db-c2457e98-ee04-43df-88a0-2ba6a51bcd4b-pHNiwD",
+        "arn:aws:secretsmanager:eu-west-2:163436765242:secret:rds!db-84a7c030-16be-4378-99fb-2b6380614c48-N2CU3U",
+        "arn:aws:secretsmanager:ap-southeast-2:163436765242:secret:rds!db-62ea06d6-f3e2-4c18-8131-94b8907d3ebe-5MN4ox"
+      ]
+    }
+  }
+}

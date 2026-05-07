@@ -1,0 +1,26 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowUpdateSpecificService",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:UpdateService",
+        "ecs:DescribeServices"
+      ],
+      "Resource": [
+        "arn:aws:ecs:ap-southeast-2:163436765242:service/hyrelog-prod-ecs/hyrelog-api"
+      ]
+    },
+    {
+      "Sid": "AllowDescribeCluster",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeClusters"
+      ],
+      "Resource": [
+        "arn:aws:ecs:ap-southeast-2:163436765242:cluster/hyrelog-prod-ecs"
+      ]
+    }
+  ]
+}

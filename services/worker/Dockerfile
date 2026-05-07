@@ -31,10 +31,22 @@ WORKDIR /app
 COPY --from=build /app /app
 WORKDIR /app/services/worker
 
+# Trust AWS RDS TLS cert chain for Prisma/pg operations.
+USER root
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && curl -fsSL -o /etc/ssl/certs/aws-rds-global-bundle.pem \
+    https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
+  && chmod 644 /etc/ssl/certs/aws-rds-global-bundle.pem \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
+
 ENV NODE_ENV=production
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/aws-rds-global-bundle.pem
 
 COPY scripts/docker/docker-entrypoint-database-url.sh /usr/local/bin/docker-entrypoint-database-url.sh
 RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint-database-url.sh && chmod +x /usr/local/bin/docker-entrypoint-database-url.sh
+USER node
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint-database-url.sh"]
 
 # Optional: pass a job name (see worker src) for one-off tasks; else full background loop

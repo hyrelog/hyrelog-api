@@ -11,7 +11,7 @@
   "containerDefinitions": [
     {
       "name": "hyrelog-worker",
-      "image": "163436765242.dkr.ecr.ap-southeast-2.amazonaws.com/hyrelog-worker:<the tag you successfully pushed>",
+      "image": "163436765242.dkr.ecr.ap-southeast-2.amazonaws.com/hyrelog-worker:9d53e007b2f42ac847df69dbacdbe73c9ebee345",
       "essential": true,
       "command": [
         "node",
@@ -105,6 +105,10 @@
         {
           "name": "DB_NAME_AU",
           "value": "hyrelog_au"
+        },
+        {
+          "name": "NODE_EXTRA_CA_CERTS",
+          "value": "/etc/ssl/certs/aws-rds-global-bundle.pem"
         }
       ],
       "secrets": [
