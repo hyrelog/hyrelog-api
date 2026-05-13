@@ -19,6 +19,7 @@
     "docker:logs": "docker compose logs -f",
     "prisma:generate": "npm run prisma:generate --workspace=services/api",
     "prisma:migrate": "npm run prisma:migrate --workspace=services/api",
+    "prisma:migrate:deploy": "npm run prisma:migrate:deploy --workspace=services/api",
     "prisma:migrate:all": "powershell -ExecutionPolicy Bypass -File ./scripts/migrate-all-regions.ps1",
     "prisma:studio": "npm run prisma:studio --workspace=services/api",
     "prisma:studio:us": "powershell -Command \"$env:DATABASE_URL='postgresql://hyrelog:hyrelog@localhost:54321/hyrelog_us'; npm run prisma:studio --workspace=services/api\"",
