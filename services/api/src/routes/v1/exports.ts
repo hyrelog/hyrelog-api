@@ -11,9 +11,11 @@ import { z } from 'zod';
 import { requireCompanyFeature, getCompanyPlanConfig, PlanRestrictionError } from '../../lib/plans.js';
 import { getObjectStream, getObjectBuffer } from '../../lib/objectStore.js';
 import { createGunzip, gunzipSync } from 'zlib';
+import { once } from 'node:events';
 import { Readable, PassThrough } from 'stream';
 import { getLogger } from '../../lib/logger.js';
 import { getTraceId } from '../../lib/trace.js';
+import { publicExportFailureSummary, publicExportRetryHint } from '../../lib/exportJobPublicMessages.js';
 
 const logger = getLogger();
 
@@ -283,7 +285,13 @@ const exportsRoutesImpl: FastifyPluginAsync = async (fastify) => {
             startedAt: { type: ['string', 'null'], format: 'date-time' },
             finishedAt: { type: ['string', 'null'], format: 'date-time' },
             errorCode: { type: ['string', 'null'] },
-            errorMessage: { type: ['string', 'null'] },
+            errorMessage: {
+              type: ['string', 'null'],
+              description:
+                'Deprecated: always null. Use failureSummary for a stable human-readable message.',
+            },
+            failureSummary: { type: ['string', 'null'], description: 'Safe summary when status is FAILED or CANCELED' },
+            retryHint: { type: ['string', 'null'], description: 'Optional stable retry guidance for terminal failures' },
           },
           required: ['id', 'status', 'source', 'format', 'rowsExported', 'createdAt'],
         },
@@ -324,6 +332,9 @@ const exportsRoutesImpl: FastifyPluginAsync = async (fastify) => {
       return reply.code(404).send({ error: 'Export job not found', code: 'NOT_FOUND' });
     }
 
+    const failureSummary = publicExportFailureSummary(exportJob.status, exportJob.errorCode);
+    const retryHint = publicExportRetryHint(exportJob.status, exportJob.errorCode);
+
     return reply.send({
       id: exportJob.id,
       status: exportJob.status,
@@ -335,7 +346,9 @@ const exportsRoutesImpl: FastifyPluginAsync = async (fastify) => {
       startedAt: exportJob.startedAt?.toISOString(),
       finishedAt: exportJob.finishedAt?.toISOString(),
       errorCode: exportJob.errorCode,
-      errorMessage: exportJob.errorMessage,
+      errorMessage: null,
+      failureSummary,
+      retryHint,
     });
   },
   });
@@ -464,7 +477,7 @@ const exportsRoutesImpl: FastifyPluginAsync = async (fastify) => {
               await finalizeJob({
                 status: 'FAILED',
                 errorCode: 'STREAM_ERROR',
-                errorMessage: streamError.message,
+                errorMessage: 'Export stream failed.',
               });
             } catch (updateError: any) {
               logger.error({ err: updateError, jobId: exportJob.id }, 'Failed to mark export job as failed');
@@ -520,14 +533,15 @@ const exportsRoutesImpl: FastifyPluginAsync = async (fastify) => {
             await finalizeJob({
               status: 'FAILED',
               errorCode: 'RESTORE_REQUIRED',
-              errorMessage: error.message,
+              errorMessage: 'Cold archive restoration required before export.',
             });
           }
 
           return reply.code(400).send({
-            error: error.message || 'Cold archived data requires restoration before export',
+            error: 'Cold archived data requires restoration before export',
             code: 'RESTORE_REQUIRED',
             archiveIds: error.archiveIds || [],
+            retryHint: publicExportRetryHint('FAILED', 'RESTORE_REQUIRED'),
           });
         }
 
@@ -536,14 +550,14 @@ const exportsRoutesImpl: FastifyPluginAsync = async (fastify) => {
           await finalizeJob({
             status: 'FAILED',
             errorCode: 'STREAM_ERROR',
-            errorMessage: error.message,
+            errorMessage: 'Export stream failed.',
           });
         }
 
         return reply.code(500).send({
           error: 'Export stream failed',
           code: 'STREAM_ERROR',
-          message: error.message,
+          retryHint: publicExportRetryHint('FAILED', 'STREAM_ERROR'),
         });
       }
     },
@@ -553,10 +567,30 @@ const exportsRoutesImpl: FastifyPluginAsync = async (fastify) => {
 
 export const exportsRoutes = fp(exportsRoutesImpl, { name: 'v1-exports-routes' });
 
+type PassThroughStream = InstanceType<typeof PassThrough>;
+
+async function writeExportChunk(stream: PassThroughStream, chunk: string): Promise<void> {
+  const ok = stream.write(chunk);
+  if (!ok) {
+    await once(stream, 'drain');
+  }
+}
+
+async function endPassThrough(stream: PassThroughStream): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const onErr = (err: unknown) => reject(err);
+    stream.once('error', onErr);
+    stream.end(() => {
+      stream.removeListener('error', onErr);
+      resolve();
+    });
+  });
+}
+
 /**
  * Stream HOT data from Postgres
  */
-async function streamHotData(
+export async function streamHotData(
   prisma: any,
   exportJob: any,
   authContext: any
@@ -566,12 +600,17 @@ async function streamHotData(
   // Keep BigInt throughout to avoid precision loss
   const rowLimit = typeof exportJob.rowLimit === 'bigint' ? exportJob.rowLimit : BigInt(exportJob.rowLimit);
 
-  // Build query conditions
+  // Build query conditions (company-scoped exports honor job.workspaceId when set)
+  const workspaceFilter =
+    authContext.scope === 'WORKSPACE'
+      ? { workspaceId: authContext.workspaceId }
+      : exportJob.workspaceId
+        ? { workspaceId: exportJob.workspaceId }
+        : {};
+
   const where: any = {
     companyId: authContext.companyId,
-    ...(authContext.scope === 'WORKSPACE' && {
-      workspaceId: authContext.workspaceId,
-    }),
+    ...workspaceFilter,
     ...(filters.projectId && { projectId: filters.projectId }),
     // Combine timestamp filters properly (don't overwrite each other)
     ...((filters.from || filters.to) && {
@@ -594,33 +633,65 @@ async function streamHotData(
     'HOT export: Querying events'
   );
 
-  // Track state for cursor pagination
-  let lastCursor: string | undefined = undefined;
+  // Stable keyset pagination: (timestamp asc, id asc) — id-only cursors with timestamp sort can skip rows.
+  let lastCursor: { timestamp: Date; id: string } | undefined;
   // Keep BigInt throughout to avoid precision loss
   let rowsExported = typeof exportJob.rowsExported === 'bigint' ? exportJob.rowsExported : BigInt(exportJob.rowsExported || 0);
-  let headerSent = false;
 
   const stream = new PassThrough();
 
   void (async () => {
     try {
+      if (format === 'CSV') {
+        await writeExportChunk(
+          stream,
+          'id,timestamp,category,action,actorId,actorEmail,actorRole,resourceType,resourceId,metadata,traceId,ipAddress,geo,userAgent\n'
+        );
+      }
+
       while (rowsExported < rowLimit) {
         // Fetch events in batches (cursor pagination)
         const events: any[] = await prisma.auditEvent.findMany({
           where: {
             ...where,
-            ...(lastCursor && { id: { gt: lastCursor } }),
+            ...(lastCursor
+              ? {
+                  OR: [
+                    { timestamp: { gt: lastCursor.timestamp } },
+                    {
+                      AND: [{ timestamp: lastCursor.timestamp }, { id: { gt: lastCursor.id } }],
+                    },
+                  ],
+                }
+              : {}),
           },
           take: 1000, // Batch size
-          orderBy: { timestamp: 'asc' },
+          orderBy: [{ timestamp: 'asc' }, { id: 'asc' }],
         });
 
         if (events.length === 0) {
-          logger.info({ jobId: exportJob.id, lastCursor }, 'HOT export: No more events found, ending stream');
+          logger.info(
+            {
+              jobId: exportJob.id,
+              lastCursor: lastCursor
+                ? { id: lastCursor.id, timestamp: lastCursor.timestamp.toISOString() }
+                : null,
+            },
+            'HOT export: No more events found, ending stream'
+          );
           break;
         }
 
-        logger.debug({ jobId: exportJob.id, eventCount: events.length, lastCursor }, 'HOT export: Fetched batch of events');
+        logger.debug(
+          {
+            jobId: exportJob.id,
+            eventCount: events.length,
+            lastCursor: lastCursor
+              ? { id: lastCursor.id, timestamp: lastCursor.timestamp.toISOString() }
+              : null,
+          },
+          'HOT export: Fetched batch of events'
+        );
 
         for (const event of events as any[]) {
           if (rowsExported >= rowLimit) {
@@ -644,13 +715,8 @@ async function streamHotData(
               geo: event.geo,
               userAgent: event.userAgent,
             });
-            stream.write(line + '\n');
+            await writeExportChunk(stream, line + '\n');
           } else {
-            if (!headerSent) {
-              // Header row (only once)
-              stream.write('id,timestamp,category,action,actorId,actorEmail,actorRole,resourceType,resourceId,metadata,traceId,ipAddress,geo,userAgent\n');
-              headerSent = true;
-            }
             const row = [
               event.id,
               event.timestamp.toISOString(),
@@ -667,11 +733,11 @@ async function streamHotData(
               event.geo || '',
               event.userAgent || '',
             ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',');
-            stream.write(row + '\n');
+            await writeExportChunk(stream, row + '\n');
           }
 
           rowsExported = rowsExported + BigInt(1);
-          lastCursor = event.id;
+          lastCursor = { timestamp: event.timestamp, id: event.id };
         }
 
         // Update rowsExported periodically (every 1000 rows)
@@ -688,7 +754,7 @@ async function streamHotData(
         where: { id: exportJob.id },
         data: { rowsExported: rowsExported },
       });
-      stream.end();
+      await endPassThrough(stream);
     } catch (error: any) {
       stream.destroy(error);
     }
@@ -700,7 +766,7 @@ async function streamHotData(
 /**
  * Stream ARCHIVED data from S3
  */
-async function streamArchivedData(
+export async function streamArchivedData(
   prisma: any,
   exportJob: any,
   authContext: any
@@ -955,7 +1021,7 @@ async function streamArchivedData(
  * Stream HOT and ARCHIVED data combined
  * Streams HOT data first, then ARCHIVED data
  */
-async function streamHotAndArchivedData(
+export async function streamHotAndArchivedData(
   prisma: any,
   exportJob: any,
   authContext: any

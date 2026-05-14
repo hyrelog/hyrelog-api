@@ -86,6 +86,16 @@ async function seed() {
     await prisma.gdprApproval.deleteMany({});
     await prisma.gdprRequest.deleteMany({});
     await prisma.archiveObject.deleteMany({});
+    try {
+      await prisma.savedExplorerView.deleteMany({});
+    } catch (error: any) {
+      if (error.code !== 'P2021') throw error;
+    }
+    try {
+      await prisma.exportTemplate.deleteMany({});
+    } catch (error: any) {
+      if (error.code !== 'P2021') throw error;
+    }
     await prisma.exportJob.deleteMany({}); // Delete export jobs before companies
     await prisma.apiKey.deleteMany({});
     await prisma.project.deleteMany({});

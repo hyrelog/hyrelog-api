@@ -5,13 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "prisma generate && tsc",
     "start": "node dist/server.js",
     "lint": "eslint src --ext .ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "prisma generate && tsc --noEmit",
+    "test": "tsx --test src/lib/dashboardEventHistogram.test.ts src/lib/dashboardExportJobs.test.ts src/lib/exportJobPublicMessages.test.ts src/lib/eventQuery.test.ts src/lib/prismaKnownErrors.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
+    "db:repair:schema-drift": "tsx scripts/repair-export-templates-table.ts",
     "prisma:studio": "prisma studio",
     "prisma:seed": "tsx prisma/seed.ts",
     "prisma:seed:reset": "tsx prisma/seed-reset.ts"

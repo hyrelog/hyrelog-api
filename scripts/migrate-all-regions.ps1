@@ -27,8 +27,8 @@ foreach ($region in $regions) {
     
     $databaseUrl = "postgresql://hyrelog:hyrelog@localhost:$($region.Port)/$($region.DbName)"
     
-    # Set environment variable for this migration
-    $env:DATABASE_URL = $databaseUrl
+    # prisma.config.ts prefers DATABASE_URL_US over DATABASE_URL — use explicit migrate URL
+    $env:PRISMA_MIGRATE_DATASOURCE_URL = $databaseUrl
     
     try {
         Push-Location $apiPath
@@ -59,7 +59,7 @@ foreach ($region in $regions) {
     }
     finally {
         Pop-Location
-        Remove-Item Env:\DATABASE_URL -ErrorAction SilentlyContinue
+        Remove-Item Env:\PRISMA_MIGRATE_DATASOURCE_URL -ErrorAction SilentlyContinue
     }
     
     Write-Host ""

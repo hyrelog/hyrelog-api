@@ -12,6 +12,7 @@ import { getRegionRouter } from '../lib/regionRouter.js';
 import { getLogger } from '../lib/logger.js';
 
 import type { PrismaClientType } from '../lib/regionRouter.js';
+import type { Region } from '../lib/config.js';
 
 export interface DashboardAuthInfo {
   userId: string;
@@ -19,6 +20,10 @@ export interface DashboardAuthInfo {
   userRole: string;
   companyId?: string; // Required for company-scoped routes
   isHyrelogAdmin: boolean; // true if userRole === 'HYRELOG_ADMIN'
+  /** HyreLog workspace UUIDs the dashboard user may access for export list/detail/download (MEMBER). */
+  exportWorkspaceIds?: string[];
+  /** Which regional DB `request.prisma` uses (see `DATABASE_URL_*`). */
+  companyDataRegion?: Region;
 }
 
 declare module 'fastify' {
@@ -78,6 +83,8 @@ export const dashboardAuthPlugin: FastifyPluginAsync = async (fastify) => {
       const isCompanyScoped =
         !pathNorm.startsWith('/dashboard/admin') && !postCompanies && !getCompanyByParam;
       let companyId: string | undefined;
+      /** Region backing `request.prisma` (for logs). */
+      let attachedDataRegion: Region | undefined;
 
       if (isCompanyScoped) {
         companyId = request.headers['x-company-id'] as string | undefined;
@@ -127,12 +134,29 @@ export const dashboardAuthPlugin: FastifyPluginAsync = async (fastify) => {
 
         // Attach region-specific Prisma client
         request.prisma = regionRouter.getPrisma(companyRegion as any);
+        attachedDataRegion = companyRegion as Region;
       } else if (postCompanies || getCompanyByParam) {
         // POST /dashboard/companies or GET /dashboard/companies/:id – route will resolve region
         request.prisma = undefined;
       } else {
         // Admin routes - use US region as default
         request.prisma = regionRouter.getPrisma('US');
+        attachedDataRegion = 'US';
+      }
+
+      const exportWorkspaceHeader = request.headers['x-export-workspace-ids'] as string | undefined;
+      let exportWorkspaceIds: string[] | undefined;
+      if (exportWorkspaceHeader && exportWorkspaceHeader.trim()) {
+        const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        exportWorkspaceIds = [
+          ...new Set(
+            exportWorkspaceHeader
+              .split(',')
+              .map((s) => s.trim())
+              .filter((s) => uuidRe.test(s))
+          ),
+        ];
+        if (exportWorkspaceIds.length === 0) exportWorkspaceIds = undefined;
       }
 
       // Attach dashboard auth info
@@ -142,6 +166,8 @@ export const dashboardAuthPlugin: FastifyPluginAsync = async (fastify) => {
         userRole,
         companyId,
         isHyrelogAdmin: userRole === 'HYRELOG_ADMIN',
+        ...(exportWorkspaceIds && exportWorkspaceIds.length > 0 ? { exportWorkspaceIds } : {}),
+        ...(attachedDataRegion ? { companyDataRegion: attachedDataRegion } : {}),
       };
 
       logger.debug(

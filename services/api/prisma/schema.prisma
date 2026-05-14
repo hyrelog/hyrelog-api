@@ -208,6 +208,8 @@ model Company {
   gdprRequests    GdprRequest[]
   webhookEndpoints WebhookEndpoint[]
   exportJobs      ExportJob[]
+  exportTemplates ExportTemplate[]
+  savedExplorerViews SavedExplorerView[]
   auditLogs       AuditLog[]
   restoreRequests GlacierRestoreRequest[]
 
@@ -255,6 +257,8 @@ model Workspace {
   archiveObjects   ArchiveObject[]
   webhookEndpoints WebhookEndpoint[]
   exportJobs       ExportJob[]
+  exportTemplates  ExportTemplate[]
+  savedExplorerViews SavedExplorerView[]
 
   @@index([companyId])
   @@map("workspaces")
@@ -528,6 +532,51 @@ model ExportJobChunk {
 
   @@index([exportJobId])
   @@map("export_job_chunks")
+}
+
+/// Saved export configuration presets (filters/format/source). No secrets; no downloadable artifacts.
+model ExportTemplate {
+  id                String   @id @default(uuid())
+  companyId         String
+  /// When set, template is scoped to that HyreLog workspace; null means company-wide (admins only).
+  workspaceId       String?
+  name              String
+  description       String?
+  createdByUserId   String
+  filters           Json
+  format            ExportFormat
+  source            ExportSource @default(HOT)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([companyId, workspaceId])
+  @@map("export_templates")
+}
+
+/// Named reusable Event Explorer query presets (canonical EventQuery JSON). No secrets.
+model SavedExplorerView {
+  id              String   @id @default(uuid())
+  companyId       String
+  /// HyreLog workspace UUID when scoped; null = company-wide (admins only).
+  workspaceId     String?
+  createdByUserId String
+  name              String
+  description       String?
+  query             Json
+  isDefault         Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([companyId, workspaceId])
+  @@map("saved_explorer_views")
 }
 
 // ============================================================

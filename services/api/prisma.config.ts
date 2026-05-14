@@ -2,12 +2,18 @@
  * Prisma 7 Configuration File
  *
  * Provides the datasource URL for Prisma Migrate and Prisma Studio.
- * Loads .env from the monorepo root. Uses DATABASE_URL if set, otherwise
- * DATABASE_URL_US so that `npx prisma studio` works without setting env in the shell.
+ * Loads .env from the hyrelog-api repo root (`../..` from this file).
  *
- * For a specific region, set DATABASE_URL before running, e.g. (PowerShell):
- *   $env:DATABASE_URL=$env:DATABASE_URL_US; npx prisma studio
- * Or from repo root: npm run prisma:studio:us
+ * **Important:** The API runtime uses `getDatabaseUrl('US')` → `DATABASE_URL_US` for US data
+ * (`regionRouter`, dashboard auth). If `DATABASE_URL` is also set (e.g. another Postgres),
+ * preferring it here caused migrations to run against the wrong DB while the server used
+ * `DATABASE_URL_US` — symptoms: `_prisma_migrations` / “no pending migrations” on one DB,
+ * `P2021` missing `export_templates` at runtime on another.
+ *
+ * Resolution order:
+ * 1. `PRISMA_MIGRATE_DATASOURCE_URL` — explicit target (e.g. `scripts/migrate-all-regions.ps1` per region).
+ * 2. `DATABASE_URL_US` — matches `getDatabaseUrl('US')` for the running API.
+ * 3. `DATABASE_URL` — legacy / tooling override when US URL is not set.
  */
 import { config as loadDotenv } from 'dotenv';
 import { resolve, dirname } from 'path';
@@ -20,8 +26,9 @@ const rootDir = resolve(currentDir, '..', '..');
 loadDotenv({ path: resolve(rootDir, '.env') });
 
 const url =
-  process.env.DATABASE_URL ||
+  process.env.PRISMA_MIGRATE_DATASOURCE_URL ||
   process.env.DATABASE_URL_US ||
+  process.env.DATABASE_URL ||
   '';
 
 export default {

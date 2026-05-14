@@ -5,6 +5,7 @@
  * - Registers @fastify/swagger in OpenAPI v3 mode.
  * - Public spec: ONLY routes that explicitly set schema.tags (non-empty array) appear.
  *   Use hideUntagged + transform to exclude untagged routes (internal/dashboard-only).
+ *   Dashboard-only endpoints (e.g. GET /dashboard/events/metrics/histogram) stay out of /openapi.json.
  * - GET /health: public health check (tagged "System") for docs and probes.
  * - GET /openapi.json: returns the filtered spec (no auth).
  */
