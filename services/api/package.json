@@ -16,6 +16,7 @@
     "db:repair:schema-drift": "tsx scripts/repair-export-templates-table.ts",
     "prisma:studio": "prisma studio",
     "prisma:seed": "tsx prisma/seed.ts",
+    "prisma:seed:screenshot": "tsx prisma/seed-screenshot-demo.ts",
     "prisma:seed:reset": "tsx prisma/seed-reset.ts"
   },
   "dependencies": {
