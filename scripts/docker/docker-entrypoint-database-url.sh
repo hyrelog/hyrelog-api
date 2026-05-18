@@ -13,7 +13,8 @@
 set -euo pipefail
 
 urlencode() {
-  node -e "console.log(encodeURIComponent(process.argv[1] || ''))" "${1:-}"
+  # RDS passwords may start with "-" or contain "!" — without "--", node treats them as CLI flags.
+  node -e "console.log(encodeURIComponent(process.argv[1] || ''))" -- "${1:-}"
 }
 
 # build_if_needed <url_var> <host_var> <port_var> <name_var> <user_var> <pass_var>
